@@ -4,16 +4,23 @@
 Double-clicking it starts the dashboard server and opens the browser —
 no terminal needed. Quitting the app (Cmd+Q) stops the server.
 
-The bundle embeds the ABSOLUTE path of this repo and its venv, so each
-machine builds its own copy (open-source users run `uv run linescreening
-app` once). Locally-created apps carry no quarantine flag, so no Gatekeeper
-prompts. Screen Recording / Accessibility TCC must be granted to
-Linescreening.app on first capture use (same as any terminal host).
+TCC attribution: a copy of the venv's python binary lives INSIDE the
+bundle (Contents/MacOS/linescreening-bin) and is what actually executes,
+so macOS attributes Screen Recording / Accessibility prompts to
+"Linescreening" itself — not to Homebrew's python (the failure mode when
+exec'ing the venv interpreter directly). The copied binary links Python.framework
+by absolute path, so it keeps working from inside the bundle; venv packages
+are supplied via PYTHONPATH.
+
+The bundle embeds the ABSOLUTE paths of this repo, so each machine builds
+its own copy (open-source users run `uv run linescreening app` once).
+Locally-created apps carry no quarantine flag, so no Gatekeeper prompts.
 """
 
 from __future__ import annotations
 
 import plistlib
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -27,8 +34,11 @@ DEFAULT_PORT = 8765
 
 _LAUNCHER = """#!/bin/bash
 # Linescreening — double-click launcher (auto-generated, safe to delete)
-cd "{repo}" || exit 1
-exec "{venv_bin}/linescreening" dashboard --port {port}
+REPO="@REPO@"
+SITE="$(echo "$REPO"/.venv/lib/python3*/site-packages)"
+export PYTHONPATH="$REPO/src:$SITE${PYTHONPATH:+:$PYTHONPATH}"
+cd "$REPO" || exit 1
+exec "$(dirname "$0")/linescreening-bin" -m linescreening.cli dashboard --port @PORT@
 """
 
 _INFO_PLIST = {
@@ -47,18 +57,26 @@ _INFO_PLIST = {
 
 
 def build_app(dest_dir: Path, port: int = DEFAULT_PORT) -> Path:  # noqa: FBT001, FBT002
-    venv_bin = REPO_ROOT / ".venv" / "bin" / "linescreening"
-    if not venv_bin.exists():
-        raise RuntimeError("找不到 .venv/bin/linescreening — 請先在專案目錄執行 `uv sync`")
+    venv_python = REPO_ROOT / ".venv" / "bin" / "python3.13"
+    if not venv_python.exists():
+        raise RuntimeError("找不到 .venv — 請先在專案目錄執行 `uv sync`")
 
     app = Path(dest_dir).expanduser() / f"{APP_NAME}.app"
     macos_dir = app / "Contents" / "MacOS"
     macos_dir.mkdir(parents=True, exist_ok=True)
 
     (app / "Contents" / "Info.plist").write_bytes(plistlib.dumps(_INFO_PLIST))
+
+    # Embed the interpreter: the process making TCC-relevant calls must run
+    # a binary INSIDE the (signed) bundle for attribution to stick to it.
+    real_python = venv_python.resolve()
+    embedded = macos_dir / "linescreening-bin"
+    shutil.copy2(real_python, embedded)
+    embedded.chmod(0o755)
+
     launcher = macos_dir / APP_NAME
     launcher.write_text(
-        _LAUNCHER.format(repo=REPO_ROOT, venv_bin=REPO_ROOT / ".venv" / "bin", port=port),
+        _LAUNCHER.replace("@REPO@", str(REPO_ROOT)).replace("@PORT@", str(port)),
         encoding="utf-8",
     )
     launcher.chmod(0o755)
@@ -95,12 +113,13 @@ def run_app_build(dest: str | None = None, port: int = DEFAULT_PORT) -> int:  # 
 
     console.print(f"[green]✅ 已建立[/green] [bold]{app}[/bold]")
     console.print(
-        "[dim]已加上本地簽章：權限詢問會掛在 Linescreening 名下，而非底層的 python 執行檔。[/dim]"
+        "[dim]直譯器已內嵌＋本地簽章：擷取權限會掛在 [bold]Linescreening[/bold] 名下，"
+        "不會再問 python。[/dim]"
     )
     console.print("雙擊即可開啟儀表板（自動打開瀏覽器）；在 Dock 按 Cmd+Q 或右鍵→結束即可停止。")
     console.print(
-        "[yellow]首次使用[/yellow]：若 macOS 詢問「螢幕錄製」權限，請允許 "
-        "[bold]Linescreening[/bold]（系統設定→隱私權與安全性→螢幕錄製）。"
+        "[yellow]首次使用[/yellow]：macOS 詢問「螢幕錄製」時請允許 "
+        "[bold]Linescreening[/bold]，然後結束並重開 App（權限在啟動時載入）。"
     )
     subprocess.run(["open", "-R", str(app)], check=False, timeout=10)  # reveal in Finder
     return 0
