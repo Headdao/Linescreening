@@ -33,6 +33,9 @@ def _build_parser() -> argparse.ArgumentParser:
     doctor.add_argument("--privacy", action="store_true", help="show what is seen/stored/sent")
     sub.add_parser("watch", help="foreground banner watcher (banner mode only)")
     sub.add_parser("check", help="verify Jev API connectivity")
+    dash = sub.add_parser("dashboard", help="local web dashboard (127.0.0.1 only)")
+    dash.add_argument("--port", type=int, default=8765)
+    dash.add_argument("--no-browser", action="store_true", help="don't auto-open the browser")
     purge = sub.add_parser("purge", help="delete ALL local data, keychain entry, launchd agent")
     purge.add_argument("--yes", action="store_true", help="skip confirmation")
     dev = sub.add_parser("dev", help=argparse.SUPPRESS)  # calibration helpers
@@ -78,6 +81,13 @@ def main(argv: list[str] | None = None) -> int:
         from linescreening.purge import run_purge
 
         return run_purge(confirm=not getattr(args, "yes", False))
+    if args.command == "dashboard":
+        from linescreening.dashboard import run_dashboard
+
+        return run_dashboard(
+            port=getattr(args, "port", 8765),
+            open_browser=not getattr(args, "no_browser", False),
+        )
     if args.command == "dev":
         from linescreening.devtools import run_dev
 

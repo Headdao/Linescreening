@@ -28,6 +28,7 @@ It never opens a chat room, so it never triggers read receipts (已讀).
 | | Details |
 |---|---|
 | **Sees (pixels)** | LINE window contents; Notification Center panel; (banner mode only) top-right corner of the screen |
+| **Dashboard** | `linescreening dashboard` binds **127.0.0.1 only** (loopback — nothing outside this Mac can connect), serves one self-contained page with no external assets; its /api/triage triggers the same capture+Jev flow as the CLI (no Jev call in offline mode) |
 | **Stores locally** | `~/.linescreening/linescreening.sqlite` — chat names, preview text, timestamps. Auto-purged after `retention_days` (default 3). Deleted entirely by `linescreening purge`. |
 | **Transmits** | Message preview text (and only that) to `api.typesafe.ai` when triage runs **with** your consent. `--offline` sends nothing. No telemetry, no crash reporting, no auto-update. |
 | **Permissions (TCC)** | Screen Recording (capture). Accessibility (optional, Notification Center). Both revocable in System Settings at any time. |

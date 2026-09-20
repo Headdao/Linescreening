@@ -64,16 +64,15 @@ def _real_nc(cfg: Config) -> list[NotificationItem]:
 # ---------------------------------------------------------------------------
 
 
-def run_triage(
-    console: Console | None = None,
+def collect_triage(
     mock: bool = False,  # noqa: FBT001, FBT002
     offline: bool = False,  # noqa: FBT001, FBT002
-    json_output: bool = False,  # noqa: FBT001, FBT002
     cfg: Config | None = None,
     sidebar_provider: SidebarProvider = _real_sidebar,
     nc_provider: NcProvider = _real_nc,
-) -> bool:
-    console = console or Console()
+) -> dict:
+    """Run the full pipeline and return the JSON payload (shared by the
+    terminal report, --json output, and the local dashboard)."""
     cfg = cfg or load_config()
     store = Store(cfg.db_path)
     store.purge_older_than(int(cfg.data["retention_days"]))
@@ -109,15 +108,18 @@ def run_triage(
             states.append((st, False))  # NC-only: may already be read
 
     if not states:
-        console.print(Panel("目前沒有可見的未讀聊天 🎉", title="linescreening triage"))
-        for w in warnings:
-            console.print(f"[yellow]⚠ {w}[/yellow]")
         store.record_triage(0)
         store.close()
-        return True
+        return {
+            "ran_at": datetime.now(UTC).isoformat(timespec="seconds"),
+            "mode": "offline" if offline else ("mock" if mock else "live"),
+            "warnings": warnings,
+            "chats": [],
+        }
 
     # ask Jev
     triages: list[Triage] = []
+    previews: dict[str, tuple[str, int | None]] = {}
     if offline or mock:
         client = make_client(mock=True)  # offline uses mock only to fill detail
     else:
@@ -130,6 +132,7 @@ def run_triage(
 
     for st, unread_flag in states:
         name = st["chat"]["name"]
+        previews[name] = (st["chat"].get("latest_preview") or "", st["chat"].get("unread_count"))
         if offline:
             triages.append(Triage(name, Verdict.MAYBE, 0.0, ["未判讀（離線模式）"]))
             continue
@@ -140,31 +143,66 @@ def run_triage(
         triages.append(t)
 
     triages = sort_triages(triages)
-
-    if json_output:
-        payload = {
-            "ran_at": datetime.now(UTC).isoformat(timespec="seconds"),
-            "mode": "offline" if offline else ("mock" if mock else "live"),
-            "warnings": warnings,
-            "chats": [
-                {
-                    "name": t.chat_name,
-                    "verdict": t.verdict.value,
-                    "label": VERDICT_LABEL[t.verdict],
-                    "priority": t.priority,
-                    "reasons": t.reasons,
-                    "low_confidence": t.low_confidence,
-                    "confidence": t.detail.get("confidence"),
-                }
-                for t in triages
-            ],
-        }
-        print(json.dumps(payload, ensure_ascii=False, indent=2))  # noqa: T201 - clean stdout for --json
-    else:
-        _render(console, triages, offline, warnings)
-
     store.record_triage(len(triages))
     store.close()
+
+    return {
+        "ran_at": datetime.now(UTC).isoformat(timespec="seconds"),
+        "mode": "offline" if offline else ("mock" if mock else "live"),
+        "warnings": warnings,
+        "chats": [
+            {
+                "name": t.chat_name,
+                "verdict": t.verdict.value,
+                "label": VERDICT_LABEL[t.verdict],
+                "priority": t.priority,
+                "reasons": t.reasons,
+                "low_confidence": t.low_confidence,
+                "confidence": t.detail.get("confidence"),
+                "preview": previews.get(t.chat_name, ("", None))[0],
+                "unread": previews.get(t.chat_name, ("", None))[1],
+            }
+            for t in triages
+        ],
+    }
+
+
+def run_triage(
+    console: Console | None = None,
+    mock: bool = False,  # noqa: FBT001, FBT002
+    offline: bool = False,  # noqa: FBT001, FBT002
+    json_output: bool = False,  # noqa: FBT001, FBT002
+    cfg: Config | None = None,
+    sidebar_provider: SidebarProvider = _real_sidebar,
+    nc_provider: NcProvider = _real_nc,
+) -> bool:
+    console = console or Console()
+    payload = collect_triage(
+        mock=mock,
+        offline=offline,
+        cfg=cfg,
+        sidebar_provider=sidebar_provider,
+        nc_provider=nc_provider,
+    )
+    triages = [
+        Triage(
+            chat_name=c["name"],
+            verdict=Verdict(c["verdict"]),
+            priority=c["priority"],
+            reasons=list(c["reasons"]),
+            low_confidence=c["low_confidence"],
+        )
+        for c in payload["chats"]
+    ]
+
+    if not triages:
+        console.print(Panel("目前沒有可見的未讀聊天 🎉", title="linescreening triage"))
+        for w in payload["warnings"]:
+            console.print(f"[yellow]⚠ {w}[/yellow]")
+    elif json_output:
+        print(json.dumps(payload, ensure_ascii=False, indent=2))  # noqa: T201 - clean stdout for --json
+    else:
+        _render(console, triages, payload["mode"] == "offline", payload["warnings"])
     return True
 
 

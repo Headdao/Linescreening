@@ -66,9 +66,16 @@ via clipboard (terminal pastes can corrupt keys) — never in a file.
 uv run linescreening triage            # capture → Jev → ranked report
 uv run linescreening triage --offline  # no network: list unreads only
 uv run linescreening triage --json     # machine-readable
+uv run linescreening dashboard         # local web dashboard (127.0.0.1:8765)
 uv run linescreening doctor            # health check (--privacy: data flow)
 uv run linescreening purge             # delete all local data + keychain + agent
 ```
+
+The **dashboard** is a single self-contained page (no CDN, no external
+assets) served on `127.0.0.1` only: grouped verdict cards with previews,
+unread badges, reasons and confidence bars, a one-click re-triage button
+and an offline toggle. Same data-flow rules as the CLI — the Jev call
+happens only when you trigger it (and not at all in offline mode).
 
 ## Privacy & security posture
 
