@@ -171,6 +171,12 @@ function mark(ok) {
 }
 function stepHtml(id, st) {
   let extra = "";
+  if (id === "screen" && !st.ok) {
+    extra = `<button onclick="openPane('screen')">開啟系統設定 → 螢幕錄製</button>`;
+  }
+  if (id === "ax" && st.ok === false) {
+    extra = `<button onclick="openPane('ax')">開啟系統設定 → 輔助使用</button>`;
+  }
   if (id === "line" && !st.ok) {
     extra = `<button onclick="openLine()">幫我開啟 LINE</button>`;
   }
@@ -204,9 +210,13 @@ async function refreshOnboarding() {
   const rows = Object.entries(s.steps).map(([id, st]) => stepHtml(id, st)).join("");
   const pending = Object.entries(s.steps).filter(([id, st]) => st.critical && !st.ok);
   const solo = pending.length === 1 && pending[0][0] === "screen"
-    ? `<div class="warn" style="margin-top:12px">只剩最後一步：請確認 螢幕錄製 的
-       <b>Linescreening</b> 開關已開啟，然後<b>結束 App（Dock 右鍵→結束）再雙擊重開</b>，
-       這頁就會自動完成。</div>` : "";
+    ? `<div class="warn" style="margin-top:12px">只剩最後一步：開啟 螢幕錄製，把
+       <b>Linescreening</b> 開關打開，然後<b>結束 App（Dock 右鍵→結束）再雙擊重開</b>。
+       <button onclick="openPane('screen')">開啟設定頁</button></div>` : "";
+  if (pending.some(([id]) => id === "screen") && !sessionStorage.ls_pane_opened) {
+    sessionStorage.ls_pane_opened = "1";
+    openPane("screen");
+  }
   ob.innerHTML = `<h2>第一次使用：4 個步驟</h2>
     <p class="sub">每完成一步會自動打勾。macOS 的權限詢問請允許「Linescreening」。</p>
     ${rows}
@@ -214,6 +224,12 @@ async function refreshOnboarding() {
     <div class="h" style="color:#6b7382;margin-top:10px">※ 允許螢幕錄製後請重開 App 才生效。</div>
     <button class="skip" onclick="skipSetup()">先跳過，用離線模式（只列未讀、不判讀）</button>`;
   if (!pollTimer) pollTimer = setInterval(refreshOnboarding, 4000);
+}
+async function openPane(which) {
+  await fetch("/api/setup/open-pane", {
+    method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({pane: which}),
+  });
 }
 async function openLine() {
   await fetch("/api/setup/open-line", {method: "POST"});
@@ -376,6 +392,21 @@ def make_server(port: int = 8765) -> ThreadingHTTPServer:  # noqa: FBT001, FBT00
                 self._json(
                     {"ok": bool(probe.ok), "verified": bool(probe.ok), "detail": probe.detail}
                 )
+            elif route == "/api/setup/open-pane":
+                from linescreening.setup_wizard import (
+                    PANE_ACCESSIBILITY,
+                    PANE_SCREEN_RECORDING,
+                    open_pane,
+                )
+
+                url = {"screen": PANE_SCREEN_RECORDING, "ax": PANE_ACCESSIBILITY}.get(
+                    str(data.get("pane") or "")
+                )
+                if not url:
+                    self._json({"ok": False, "error": "unknown pane"}, status=400)
+                    return
+                open_pane(url)
+                self._json({"ok": True})
             elif route == "/api/setup/open-line":
                 from linescreening.capture import activate_app
 
