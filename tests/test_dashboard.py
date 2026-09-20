@@ -87,7 +87,7 @@ def test_setup_status_shape(server):
 def test_setup_key_rejects_blank(server):
     import urllib.request
 
-    req = urllib.request.Request(
+    req = urllib.request.Request(  # noqa: S310 — 127.0.0.1 test server
         server + "/api/setup/key",
         data=json.dumps({"key": "  "}).encode(),
         headers={"Content-Type": "application/json"},

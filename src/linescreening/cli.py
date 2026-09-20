@@ -37,7 +37,9 @@ def _build_parser() -> argparse.ArgumentParser:
     dash.add_argument("--port", type=int, default=8765)
     dash.add_argument("--no-browser", action="store_true", help="don't auto-open the browser")
     app = sub.add_parser("app", help="build double-clickable Linescreening.app (Desktop)")
-    app.add_argument("--dest", metavar="DIR", help="where to place the .app (default: ~/Desktop)")
+    app.add_argument(
+        "--dest", metavar="DIR", help="where to place the .app (default: /Applications)"
+    )
     purge = sub.add_parser("purge", help="delete ALL local data, keychain entry, launchd agent")
     purge.add_argument("--yes", action="store_true", help="skip confirmation")
     dev = sub.add_parser("dev", help=argparse.SUPPRESS)  # calibration helpers

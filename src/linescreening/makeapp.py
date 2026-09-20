@@ -112,12 +112,21 @@ def _sign(app: Path) -> bool:
 
 def run_app_build(dest: str | None = None, port: int = DEFAULT_PORT) -> int:  # noqa: FBT001, FBT002
     console = Console()
-    dest_dir = Path(dest).expanduser() if dest else Path.home() / "Desktop"
+    # Default to /Applications: an iCloud-synced Desktop can materialize the
+    # bundle lazily and break double-click launches right after a rebuild.
+    dest_dir = Path(dest).expanduser() if dest else Path("/Applications")
     try:
         app = build_app(dest_dir, port=port)
     except RuntimeError as exc:
         console.print(f"[red]建立失敗：{exc}[/red]")
         return 1
+    except OSError:
+        dest_dir = Path.home() / "Desktop"
+        console.print(
+            "[yellow]/Applications 無法寫入，改放桌面"
+            "（若桌面有 iCloud 同步，建議手動搬進 /Applications）[/yellow]"
+        )
+        app = build_app(dest_dir, port=port)
 
     console.print(f"[green]✅ 已建立[/green] [bold]{app}[/bold]")
     console.print(
