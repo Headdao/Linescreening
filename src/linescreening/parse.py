@@ -8,6 +8,7 @@ config.yaml so a LINE redesign only changes YAML, not code.
 
 from __future__ import annotations
 
+import difflib
 import re
 from dataclasses import dataclass, field
 
@@ -32,6 +33,8 @@ class NotificationItem:
     chat_name: str
     body: str
     time_text: str = ""
+    top: float = 0.0  # panel-space extents, used to stop over-eager folding
+    bottom: float = 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -41,7 +44,9 @@ class NotificationItem:
 _NUM_RE = re.compile(r"^\d{1,3}$")
 # OCR often glues stray edge punctuation onto clean text
 _EDGE_PUNCT = "）)」』】］>》..,,、;；-—_·"
-_TRAILING_TIME = re.compile(r"\s*((上午|下午|晚上|中午|凌晨)?\s*\d{1,2}\s*[:：]?\s*\d{2})$")
+_TRAILING_TIME = re.compile(
+    r"\s*((?:昨天|今天|前天)?\s*(上午|下午|晚上|中午|凌晨)\s*\d{1,2}\s*[:：]?\s*\d{2})$"
+)
 
 
 def normalize_text(text: str) -> str:
@@ -375,31 +380,76 @@ def parse_notifications(items: list[OcrText], img_width: float) -> list[Notifica
             continue
         title = join_tokens(rest)
         time_text = " ".join(t.text for t in time_toks)
+        # OCR may split '晚上8:30' across tokens so per-token time checks miss
+        # it — pull a trailing clock out of the joined title as a fallback.
+        title, trailing = split_trailing_time(title)
+        if trailing:
+            time_text = (time_text + " " + trailing).strip()
+        if _NC_NOISE_TITLE.fullmatch(title) or _WHOLE_LINE_TIME.fullmatch(
+            title.replace(" ", "")
+        ):
+            # chrome, or a pure-timestamp row (its notification's title was
+            # missed by OCR) — drop BEFORE it can absorb the next line as body
+            i += 1
+            continue
         body = ""
+        top, bottom = line.y, line.y + line.h
         nxt = lines[i + 1] if i + 1 < len(lines) else None
         if nxt is not None and _nc_is_body(line, nxt):
             body = nxt.text.strip()
+            bottom = max(bottom, nxt.y + nxt.h)
             i += 2
         else:
             i += 1
-        if _NC_NOISE_TITLE.fullmatch(title):
-            continue
-        raw.append(NotificationItem(chat_name=title, body=body, time_text=time_text))
+        raw.append(
+            NotificationItem(
+                chat_name=title, body=body, time_text=time_text, top=top, bottom=bottom
+            )
+        )
 
-    # Fold continuation lines: an item with no time and empty-ish profile is a
-    # wrapped body of the previous item when the previous one has a body.
+    # Fold continuation lines: a time-less item directly under the previous
+    # one's last line is a wrapped body — NOT when it sits far below (that is
+    # a new notification whose title OCR missed) or repeats the chat name
+    # (stacked notifications from the same chat re-show the name).
     out: list[NotificationItem] = []
     for item in raw:
-        if out and not item.time_text and out[-1].body and not _looks_like_new_title(out[-1], item):
+        if (
+            out
+            and not item.time_text
+            and out[-1].body
+            and not _looks_like_new_title(out[-1], item)
+            and item.top - out[-1].bottom <= _NC_FOLD_GAP
+            and not _same_chat_name(out[-1].chat_name, item.chat_name)
+        ):
             prev = out[-1]
             out[-1] = NotificationItem(
                 chat_name=prev.chat_name,
                 body=(prev.body + item.chat_name).strip(" "),
                 time_text=prev.time_text,
+                top=prev.top,
+                bottom=max(prev.bottom, item.bottom),
             )
         else:
             out.append(item)
     return out
+
+
+_NC_FOLD_GAP = 40.0  # px between consecutive body-wrap lines vs separate notifications
+
+# a line that is nothing but a timestamp (its notification's title was missed
+# by OCR) — chrome, not a chat name
+_WHOLE_LINE_TIME = re.compile(
+    r"(昨天|今天|前天)?(上午|下午|晚上|中午|凌晨)\d{1,2}[:：]?\d{2}"
+)
+
+
+def _same_chat_name(a: str, b: str) -> bool:
+    """Fuzzy equality for stacked same-chat titles (OCR rarely reads a name
+    identically twice: 量化AI…孵化中心 vs 將化中心)."""
+    if not a or not b:
+        return False
+    ratio = difflib.SequenceMatcher(None, a, b).ratio()
+    return ratio >= 0.75 or (ratio >= 0.6 and abs(len(a) - len(b)) <= 2 and len(a) >= 6)
 
 
 def _looks_like_new_title(prev: NotificationItem, candidate: NotificationItem) -> bool:

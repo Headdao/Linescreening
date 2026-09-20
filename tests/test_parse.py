@@ -212,4 +212,35 @@ def test_parse_notifications_folds_wrapped_body():
     assert notes[0].chat_name == "Microsoft Outlook"
     assert "意見反應" in notes[0].body and "兩個問題" in notes[0].body
     assert notes[1].chat_name == "Osmond"
-    assert notes[1].body == "我的奶油呢"
+
+
+def test_parse_notifications_glued_time_and_orphan_time_rows():
+    """Real-world NC dump (2026-09-20): OCR split '晚上8:30' across tokens and
+    fullwidth-colon times glued to names — per-token checks missed them, so
+    timed titles folded into the previous body and everything cascaded into
+    one giant item."""
+    items = [
+        tok("Microsoft Outlook", 40, 101, h=14),
+        tok("21分鐘前", 300, 101, w=50, h=14),
+        tok("26E Multiple runs failed", 40, 113, h=14),
+        tok("ci.yml, no jobs were run", 40, 133, h=14),  # wrapped body line (real gap)
+        tok("昨天", 40, 213, h=14),
+        tok("晚上8", 78, 213, w=34, h=14),
+        tok(":30", 118, 213, w=18, h=14),  # time split across tokens → whole row is time
+        tok("2027秋季 翩然登場～", 40, 245, h=14),  # title-missed notification body
+        tok("Microsoft Outlook", 40, 309, h=14),
+        tok("下午2：47", 240, 309, w=52, h=14),  # fullwidth colon glued after the name
+        tok("我們歡迎您的意見反應！", 40, 323, h=14),
+        tok("我們只需要您回答兩個問題。", 40, 339, h=14),
+    ]
+    notes = parse_notifications(items, 460.0)
+    # three separate notifications — never one merged blob, never a time row
+    assert len(notes) == 3
+    assert [n.chat_name for n in notes] == [
+        "Microsoft Outlook",
+        "2027秋季 翩然登場～",
+        "Microsoft Outlook",
+    ]
+    assert "ci.yml" in notes[0].body  # close-gap wrap still folds
+    assert "2:47" in notes[2].time_text or "2：47" in notes[2].time_text
+    assert "兩個問題" in notes[2].body

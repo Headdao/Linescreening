@@ -195,6 +195,24 @@ def check_accessibility() -> CheckResult:
     return _optional("輔助使用權限", "未授權 — 通知中心 dump 將自動略過（不影響側欄擷取）")
 
 
+def request_accessibility_prompt() -> bool:
+    """Ask macOS to surface the Accessibility grant dialog for THIS process.
+
+    The system dialog pre-adds the exact running identity to the
+    Accessibility list (ad-hoc Homebrew python re-execs as a Python.app
+    deep in Cellar, so manually dragged list entries rarely match the
+    binary that is actually running). Best-effort; returns current trust.
+    """
+    try:
+        from ApplicationServices import (  # type: ignore[attr-defined]
+            AXIsProcessTrustedWithOptions,
+            kAXTrustedCheckOptionPrompt,
+        )
+    except ImportError:
+        return False
+    return bool(AXIsProcessTrustedWithOptions({kAXTrustedCheckOptionPrompt: True}))
+
+
 # ---------------------------------------------------------------------------
 # Notifications (best-effort reading of com.apple.ncprefs)
 # ---------------------------------------------------------------------------

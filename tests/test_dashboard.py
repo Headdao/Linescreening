@@ -84,6 +84,22 @@ def test_setup_status_shape(server):
         assert set(st) >= {"ok", "critical", "title", "hint"}
 
 
+def test_setup_ax_prompt_endpoint(server, monkeypatch):
+    from linescreening import checks
+
+    called = []
+    monkeypatch.setattr(
+        checks, "request_accessibility_prompt", lambda: (called.append(1), True)[1]
+    )
+    req = urllib.request.Request(  # noqa: S310 — 127.0.0.1 test server
+        server + "/api/setup/ax-prompt", data=b"", method="POST"
+    )
+    with urllib.request.urlopen(req, timeout=10) as resp:  # noqa: S310
+        assert resp.status == 200
+        assert json.loads(resp.read()) == {"requested": True}
+    assert called == [1]
+
+
 def test_setup_key_rejects_blank(server):
     import urllib.request
 

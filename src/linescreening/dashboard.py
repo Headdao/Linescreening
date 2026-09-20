@@ -174,8 +174,10 @@ function stepHtml(id, st) {
   if (id === "screen" && !st.ok) {
     extra = `<button onclick="openPane('screen')">開啟系統設定 → 螢幕錄製</button>`;
   }
-  if (id === "ax" && st.ok === false) {
-    extra = `<button onclick="openPane('ax')">開啟系統設定 → 輔助使用</button>`;
+  if (id === "ax" && st.ok !== true) {
+    extra = `<button onclick="axPrompt(this)">向系統要求授權</button>
+             <button onclick="openPane('ax')">開啟系統設定 → 輔助使用</button>
+             <div class="h">跳出視窗按「開啟系統設定」，把清單<b>新出現</b>的項目開關打開。</div>`;
   }
   if (id === "line" && !st.ok) {
     extra = `<button onclick="openLine()">幫我開啟 LINE</button>`;
@@ -239,6 +241,17 @@ async function openPane(which) {
 async function openLine() {
   await fetch("/api/setup/open-line", {method: "POST"});
   setTimeout(refreshOnboarding, 1200);
+}
+async function axPrompt(btn) {
+  btn.disabled = true;
+  btn.textContent = "已送出要求…";
+  try {
+    await fetch("/api/setup/ax-prompt", {method: "POST"});
+    btn.textContent = "已送出 — 去系統設定打開新項目的開關";
+  } catch (e) {
+    btn.disabled = false;
+    btn.textContent = "向系統要求授權";
+  }
 }
 async function saveKey() {
   const key = document.getElementById("apikey").value;
@@ -314,7 +327,7 @@ def _setup_status(cfg) -> dict:  # type: ignore[no-untyped-def]
             "ok": None if ax.ok is None else bool(ax.ok),
             "critical": False,
             "title": "通知中心（選配）",
-            "hint": "略過不影響使用；想用請到 輔助使用 授權 Linescreening",
+            "hint": "略過不影響使用；想用請按「向系統要求授權」，並打開清單新出現項目的開關",
         },
     }
     critical_ok = all(bool(st["ok"]) for st in steps.values() if st["critical"])
@@ -397,6 +410,10 @@ def make_server(port: int = 8765) -> ThreadingHTTPServer:  # noqa: FBT001, FBT00
                 self._json(
                     {"ok": bool(probe.ok), "verified": bool(probe.ok), "detail": probe.detail}
                 )
+            elif route == "/api/setup/ax-prompt":
+                from linescreening import checks
+
+                self._json({"requested": checks.request_accessibility_prompt()})
             elif route == "/api/setup/open-pane":
                 from linescreening.setup_wizard import (
                     PANE_ACCESSIBILITY,

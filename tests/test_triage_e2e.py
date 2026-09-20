@@ -135,5 +135,5 @@ def test_optional_nc_skip_is_a_notice_not_a_warning(capsys):
     )
     assert payload["warnings"] == []
     assert len(payload["notices"]) == 1
-    assert "輔助使用" in payload["notices"][0]
+    assert "向系統要求授權" in payload["notices"][0]
     assert [c["name"] for c in payload["chats"]] == ["媽媽"]

@@ -91,7 +91,8 @@ def collect_triage(
     except Exception as exc:  # noqa: BLE001 — optional source; skip without alarming
         notices.append(
             f"通知中心來源未啟用（選配）——{exc.__class__.__name__}: {str(exc)[:70]}。"
-            "想用的話：系統設定 → 隱私權與安全性 → 輔助使用 → 開啟 Linescreening。"
+            "想用的話：到儀表板「第一次使用」按「向系統要求授權」，"
+            "並打開清單新出現項目的開關。"
         )
 
     # consent: no key consent -> offline unless mock
