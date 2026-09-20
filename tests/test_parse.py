@@ -94,15 +94,36 @@ def test_parse_sidebar_drops_noise_rows():
     assert not any("LINE TODAY" in n for n in names)
 
 
-def test_parse_sidebar_badge_999plus():
+def test_parse_sidebar_badge_midlist_attaches():
+    """中段列的徽章（對齊列跨距內）正確歸屬。"""
     items = [
-        tok("999+", 78, 132, w=30, h=12),
-        tok("周鳳珠", 202, 160),
-        tok("下午4:50", 467, 160, w=54),
+        tok("媽媽", 202, 100, w=32, h=12),
+        tok("下午3:00", 467, 100, w=54, h=12),
+        tok("999+", 78, 112, w=30, h=12),  # cy 118 within 周鳳珠 span [140,142]... see next row
+        tok("周鳳珠", 202, 160, w=50, h=22),
+        tok("下午4:50", 467, 160, w=54, h=22),
     ]
+    # fix badge to sit inside 周鳳珠's span instead (y 168 → cy 174)
+    items[2] = tok("999+", 78, 168, w=30, h=12)
     rows = parse_sidebar(items, SIDEBAR_W)
+    names = {r.chat_name: r.unread for r in rows}
+    assert names["周鳳珠"] == 999
+    assert names["媽媽"] is None
+
+
+def test_badge_never_drifts_to_row_below():
+    """999+ whose own row (name line) was not OCR-recognized must NOT be
+    attached to the next row below (the 'Osmond has 999 unread' bug)."""
+    items = [
+        tok("999+", 78, 12, w=26, h=12),  # true row above has no OCR text
+        tok("Osmond", 184, 48, w=46, h=12),
+        tok("下午 3:39", 385, 48, w=46, h=12),
+        tok("拿一下衣服", 184, 64, w=80, h=12),
+    ]
+    rows = parse_sidebar(items, 590.0)
     assert len(rows) == 1
-    assert rows[0].unread == 999
+    assert rows[0].chat_name == "Osmond"
+    assert rows[0].unread is None  # badge dropped, not misattached
 
 
 def test_parse_sidebar_caps_rows():

@@ -251,9 +251,16 @@ def parse_sidebar(
     for badge in badge_tokens:
         best_idx, best_dist = None, 1e9
         for idx, line in enumerate(lines):
+            # a mid-list badge centers INSIDE its row's vertical span;
+            # a badge at the very top of the crop belongs to a half-clipped
+            # row above (whose name line was never OCR'd) — attaching it to
+            # the row below produced the "999 未讀 on the wrong chat" bug,
+            # so badges no line covers are dropped instead.
+            if not (line.y - 18 <= badge.cy <= line.y + line.h + 8):
+                continue
             center = line.y + line.h / 2
             dist = abs(badge.cy - center)
-            if dist < best_dist and dist < max(34.0, line.h * 1.5):
+            if dist < best_dist:
                 best_idx, best_dist = idx, dist
         if best_idx is not None:
             unread_by_line.setdefault(best_idx, _badge_value(badge.text) or 0)
