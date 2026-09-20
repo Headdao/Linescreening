@@ -54,7 +54,12 @@ LINE desktop app, and a Typesafe AI API key
 ```bash
 uv sync
 uv run linescreening setup   # guided wizard: permissions, notifications, key
+uv run linescreening app     # build Linescreening.app on the Desktop
 ```
+
+**之後日常使用不需要終端機**：雙擊桌面上的 **Linescreening.app** 即可打開
+儀表板（自動開瀏覽器）；在 Dock 上按 Cmd+Q 或右鍵→結束即可停止。首次用
+App 擷取時，macOS 會要求把「螢幕錄製」權限授給 Linescreening.app。
 
 The wizard verifies every step live (real capture probe, real test
 message, real API ping). The API key is stored in the macOS **Keychain**
