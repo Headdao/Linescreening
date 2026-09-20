@@ -36,7 +36,46 @@ _TIME_SENSITIVE = (
 )
 _EXPECTS_REPLY = ("？", "?", "嗎", "能不能", "可以嗎", "要不要", "回我", "回覆")
 _ASKS_ACTION = ("幫我", "記得", "麻煩", "請你", "幫忙", "send", "confirm", "book", "transfer")
-_AUTOMATED = ("優惠", "折扣", "coupon", "官方帳號", "line voom", "newsletter", "促銷", "活動通知")
+_AUTOMATED = (
+    "優惠",
+    "折扣",
+    "coupon",
+    "官方帳號",
+    "line voom",
+    "newsletter",
+    "促銷",
+    "活動通知",
+    "首刷禮",
+)
+_TRANSACTIONAL = (
+    "消費",
+    "扣款",
+    "刷卡",
+    "帳單",
+    "繳費",
+    "到貨",
+    "提醒",
+    "警示",
+    "登入",
+    "驗證",
+    "交易",
+    "欠費",
+    "已核准",
+    "charge",
+    "billing",
+    "delivery",
+)
+_REDIRECT = (
+    "登入",
+    "點擊",
+    "詳情",
+    "查看詳細",
+    "請至",
+    "前往",
+    "log in",
+    "click here",
+    "see details",
+)
 _CASUAL = ("哈哈", "嘿嘿", "貼圖", "早安", "晚安", "hi", "hello", "xd", "lol", "ok", "OK")
 
 
@@ -67,6 +106,8 @@ def mock_answer(
             "expects_reply": _EXPECTS_REPLY,
             "asks_action": _ASKS_ACTION,
             "automated_broadcast": _AUTOMATED,
+            "is_transactional": _TRANSACTIONAL,
+            "is_redirect_ping": _REDIRECT,
             "casual_social": _CASUAL,
         }
         needles = table.get(question_id)

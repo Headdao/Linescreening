@@ -17,10 +17,12 @@ weights:
   casual_social_penalty: 0.10
 
 thresholds:
-  read_now_urgency_norm: 0.50    # urgency_norm strictly above this -> READ_NOW
+  read_now_urgency_norm: 0.60    # urgency_norm strictly above this -> READ_NOW
   read_now_expects_reply: 0.60    # expects_reply > this AND importance >= 2 -> READ_NOW
   read_soon_priority: 0.35        # priority >= this      -> READ_SOON
   can_skip_automated: 0.70        # automated_broadcast > this -> CAN_SKIP
+  transactional_floor: 0.60       # ...unless is_transactional >= this (charge/bill/alert)
+  redirect_ping: 0.55             # 'please log in' empty pointer above this -> CAN_SKIP       # ...unless is_transactional >= this (charge/bill/alert)
   can_skip_casual: 0.80           # casual_social > this      -> CAN_SKIP
   low_confidence: 0.35            # answer confidence < this -> flag MAYBE (low confidence)
 

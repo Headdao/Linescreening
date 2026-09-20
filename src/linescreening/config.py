@@ -33,10 +33,12 @@ DEFAULTS: dict[str, Any] = {
         "casual_social_penalty": 0.10,
     },
     "thresholds": {
-        "read_now_urgency_norm": 0.50,
+        "read_now_urgency_norm": 0.60,
         "read_now_expects_reply": 0.60,
         "read_soon_priority": 0.35,
         "can_skip_automated": 0.70,
+        "transactional_floor": 0.60,
+        "redirect_ping": 0.55,
         "can_skip_casual": 0.80,
         "low_confidence": 0.35,
     },

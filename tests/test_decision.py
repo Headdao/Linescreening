@@ -27,6 +27,8 @@ def answers(**over) -> dict:
         "time_sensitive": {"type": "noul", "noul": 0.1},
         "asks_action": {"type": "noul", "noul": 0.1},
         "automated_broadcast": {"type": "noul", "noul": 0.05},
+        "is_transactional": {"type": "noul", "noul": 0.05},
+        "is_redirect_ping": {"type": "noul", "noul": 0.05},
         "casual_social": {"type": "noul", "noul": 0.1},
         "importance": {"type": "score", "score": 1.0, "confidence": 0.9},
         "urgency": {"type": "score", "score": 0.0, "confidence": 0.9},
@@ -46,6 +48,8 @@ def test_battery_shape():
         "time_sensitive": "noul",
         "asks_action": "noul",
         "automated_broadcast": "noul",
+        "is_transactional": "noul",
+        "is_redirect_ping": "noul",
         "casual_social": "noul",
         "importance": "score",
         "urgency": "score",
@@ -117,13 +121,102 @@ def test_coupon_can_skip_even_if_urgent(cfg):
         "LINE 官方帳號",
         answers(
             automated_broadcast={"type": "noul", "noul": 0.95},
+            is_transactional={"type": "noul", "noul": 0.05},
             time_sensitive={"type": "noul", "noul": 0.7},
             urgency={"type": "score", "score": 2.0, "confidence": 0.9},
         ),
         cfg,
     )
     assert t.verdict is Verdict.CAN_SKIP
-    assert any("官方" in r for r in t.reasons)
+    assert any("行銷" in r for r in t.reasons)
+
+
+def test_bank_redirect_ping_skips(cfg):
+    """銀行「請登入查看」導流通知：內容在登入後，訊息本身無內容 → 略過。"""
+    t = combine(
+        "中國信託",
+        answers(
+            automated_broadcast={"type": "noul", "noul": 0.85},
+            is_transactional={"type": "noul", "noul": 0.05},
+        ),
+        cfg,
+    )
+    assert t.verdict is Verdict.CAN_SKIP
+
+
+def test_empty_redirect_ping_rule(cfg):
+    """空導流（非行銷、無事實內容）也略過。"""
+    t = combine(
+        "某官方帳號",
+        answers(
+            automated_broadcast={"type": "noul", "noul": 0.3},
+            is_transactional={"type": "noul", "noul": 0.05},
+            is_redirect_ping={"type": "noul", "noul": 0.85},
+        ),
+        cfg,
+    )
+    assert t.verdict is Verdict.CAN_SKIP
+    assert any("空導流" in r for r in t.reasons)
+
+
+def test_card_charge_notice_kept(cfg):
+    """刷卡通知：事實直達（金額在訊息裡）→ 不沉底。"""
+    t = combine(
+        "中國信託",
+        answers(
+            automated_broadcast={"type": "noul", "noul": 0.7},
+            is_transactional={"type": "noul", "noul": 0.9},
+            is_redirect_ping={"type": "noul", "noul": 0.1},
+            importance={"type": "score", "score": 2.0, "confidence": 0.9},
+        ),
+        cfg,
+    )
+    assert t.verdict is not Verdict.CAN_SKIP
+
+
+def test_bank_ad_still_skips(cfg):
+    """同一個銀行帳號的廣告 → 照樣略過（內容分級，非寄件者分級）。"""
+    t = combine(
+        "中國信託",
+        answers(
+            automated_broadcast={"type": "noul", "noul": 0.95},
+            is_transactional={"type": "noul", "noul": 0.05},
+        ),
+        cfg,
+    )
+    assert t.verdict is Verdict.CAN_SKIP
+
+
+def test_strong_marketing_survives_low_confidence(cfg):
+    """行銷訊號 >0.85 的廣告即使信心低也不升成 MAYBE（避免污染中間區）。"""
+    t = combine(
+        "中國信託",
+        answers(
+            automated_broadcast={"type": "noul", "noul": 0.94},
+            is_transactional={"type": "noul", "noul": 0.05},
+            importance={"type": "score", "score": 0.0, "confidence": 0.2},
+            urgency={"type": "score", "score": 0.0, "confidence": 0.3},
+        ),
+        cfg,
+    )
+    assert t.verdict is Verdict.CAN_SKIP
+    assert t.low_confidence is True
+
+
+def test_delivery_with_actionable_content_not_sinking(cfg):
+    """訊息本身含可直接行動內容（領件代碼+期限）→ 不沉底。"""
+    t = combine(
+        "蝦皮到貨通知",
+        answers(
+            automated_broadcast={"type": "noul", "noul": 0.8},
+            is_transactional={"type": "noul", "noul": 0.9},
+            time_sensitive={"type": "noul", "noul": 0.6},
+            urgency={"type": "score", "score": 1.0, "confidence": 0.9},
+        ),
+        cfg,
+    )
+    assert t.verdict is not Verdict.CAN_SKIP
+    assert any("帳務" in r or "可直接行動" in r for r in t.reasons)
 
 
 def test_casual_can_skip(cfg):

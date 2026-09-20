@@ -25,15 +25,19 @@ QUESTION_BATTERY: dict[str, dict] = {
         "type": "noul",
         "instructions": (
             "The latest messages contain a question or request directed at the "
-            "user personally that expects a reply."
+            "user personally BY A PERSON, in a conversation, that expects a reply. "
+            "Automated or system directives ('please pick up within 3 days') are "
+            "NOT reply-expecting messages."
         ),
     },
     "time_sensitive": {
         "type": "noul",
         "instructions": (
-            "The messages involve something time-critical: something happening "
-            "today or tonight, a deadline, a schedule change, or words like "
-            "now / today / tonight / 幾點."
+            "The messages involve something time-critical the USER must act on "
+            "or attend: happening today/tonight, a deadline, a schedule change, "
+            "or words like now / today / tonight / 幾點. A mere timestamp of when "
+            "something already happened (e.g. a charge at 2:15pm) is NOT "
+            "time-sensitivity."
         ),
     },
     "asks_action": {
@@ -46,9 +50,39 @@ QUESTION_BATTERY: dict[str, dict] = {
     "automated_broadcast": {
         "type": "noul",
         "instructions": (
-            "The messages look automated or mass-sent: an official-account "
-            "notice, coupon, newsletter, campaign blast, or system alert."
+            "The messages look like PROMOTIONAL mass-sent marketing: a coupon, "
+            "discount campaign, advertisement, newsletter, or promotional blast "
+            "from an official account. (Factual notices about the user's own "
+            "account do NOT count.)"
         ),
+    },
+    "is_transactional": {
+        "type": "noul",
+        "instructions": (
+            "The message itself contains the actionable detail about something "
+            "the user already did or must personally do — their delivery's pickup "
+            "code, their appointment time, their payment. A notice that only says "
+            "'please log in to view' does NOT count, and the parameters of a "
+            "PROMOTIONAL OFFER (discount %, offer deadline) do NOT count either."
+        ),
+    },
+    "is_redirect_ping": {
+        "type": "noul",
+        "instructions": (
+            "The message tells the user to go somewhere else — log in, open an "
+            "app, click a link, 'see details' — WITHOUT containing the actual "
+            "information itself. It is an empty pointer, not a report."
+        ),
+        "criteria": {
+            "true": (
+                "The only substance is directing the user elsewhere, e.g. "
+                "「您有新訊息，請登入查看」「詳情請點擊連結」"
+            ),
+            "false": (
+                "The message itself reports the fact (amount, pickup code, "
+                "appointment time) or is a human conversation"
+            ),
+        },
     },
     "casual_social": {
         "type": "noul",
@@ -209,6 +243,7 @@ def combine(chat_name: str, answers: dict, cfg: Config) -> Triage:
     time_sensitive = _noul(answers, "time_sensitive")
     asks_action = _noul(answers, "asks_action")
     automated = _noul(answers, "automated_broadcast")
+    transactional = _noul(answers, "is_transactional")
     casual = _noul(answers, "casual_social")
 
     priority = (
@@ -224,10 +259,17 @@ def combine(chat_name: str, answers: dict, cfg: Config) -> Triage:
     reasons: list[str] = []
     verdict: Verdict
 
-    # Automated spam is skippable even when it shouts "today only!".
-    if automated > t["can_skip_automated"]:
+    # Promotional mass-sends are skippable even when they shout "today
+    # only!" — but a strong TRANSACTIONAL signal (charge, security alert,
+    # bill, delivery) means the official sender is reporting a fact about
+    # the user's own account, and it must not sink to the bottom.
+    redirect = _noul(answers, "is_redirect_ping")
+    if automated > t["can_skip_automated"] and transactional < t["transactional_floor"]:
         verdict = Verdict.CAN_SKIP
-        reasons.append(f"官方/大量發送訊號強（{automated:.2f}）")
+        reasons.append(f"行銷/大量發送訊號強（{automated:.2f}）")
+    elif redirect > t["redirect_ping"] and transactional < t["transactional_floor"]:
+        verdict = Verdict.CAN_SKIP
+        reasons.append(f"空導流通知（{redirect:.2f}）：內容在別處，訊息本身無資訊")
     elif urgency_n > t["read_now_urgency_norm"] or (
         expects_reply > t["read_now_expects_reply"] and importance_raw >= 2
     ):
@@ -246,11 +288,15 @@ def combine(chat_name: str, answers: dict, cfg: Config) -> Triage:
         verdict = Verdict.MAYBE
         reasons.append(f"綜合優先度 {priority:.2f}（訊號不明確）")
 
+    if transactional >= t["transactional_floor"] and automated > t["can_skip_automated"]:
+        reasons.append(f"訊息本身含可直接行動內容（{transactional:.2f}）→ 不自動略過")
+
     confidence = _min_confidence(answers)
     low_conf = confidence < t["low_confidence"]
-    if low_conf and verdict in {Verdict.READ_SOON, Verdict.CAN_SKIP}:
-        # never downgrade READ_NOW — an urgent-looking message stays visible;
-        # soft verdicts with shaky evidence become MAYBE instead.
+    # never downgrade READ_NOW; very strong marketing signals (>0.85) also
+    # stay CAN_SKIP — a bank ad at low confidence metadata is still an ad.
+    strong_marketing = verdict is Verdict.CAN_SKIP and automated > 0.85
+    if low_conf and verdict in {Verdict.READ_SOON, Verdict.CAN_SKIP} and not strong_marketing:
         verdict = Verdict.MAYBE
         reasons.append(f"模型信心不足（{confidence:.2f}）")
 

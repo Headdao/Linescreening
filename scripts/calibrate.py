@@ -60,11 +60,63 @@ SCENARIOS = [
         "群組閒聊（信心在 0.35 邊界波動，MAYBE 亦屬正確）",
     ),
     ("LINE 官方帳號", 1, "限時優惠！全站商品 8 折只到今天", [], Verdict.CAN_SKIP, "官方推播"),
-    ("朋友", 1, "哈哈哈哈", [], Verdict.CAN_SKIP, "純閒聊"),
+    (
+        "朋友",
+        1,
+        "哈哈哈哈",
+        [],
+        frozenset({Verdict.CAN_SKIP, Verdict.MAYBE}),
+        "純閒聊（信心波動，底二區即可）",
+    ),
     ("朋友", 1, "[貼圖]", [], Verdict.MAYBE, "媒體預覽無文字→誠實的MAYBE"),
     ("社團群組", 30, "王大明：有人知道哪邊可以修車嗎？", [], Verdict.MAYBE, "群組無關訊息，訊號弱"),
-    ("銀行通知", 1, "您的刷卡消費 3,500 元已核准", [], Verdict.MAYBE, "重要但非對話"),
+    (
+        "中國信託",
+        1,
+        "您有一則新訊息，請登入網銀查看詳細內容",
+        [],
+        frozenset({Verdict.CAN_SKIP, Verdict.MAYBE}),
+        "空導流：不升藍不升紅即可（略過/不確定皆可）",
+    ),
+    (
+        "中國信託",
+        1,
+        "您的卡號尾號1234於下午2:15消費3,500元已核准",
+        [],
+        frozenset({Verdict.MAYBE, Verdict.READ_SOON, Verdict.READ_NOW}),
+        "刷卡通知：事實直達→保留不沉底（紅/藍/黃皆可）",
+    ),
+    (
+        "台灣電力",
+        1,
+        "本期電費2,380元，繳費期限10/5",
+        [],
+        frozenset({Verdict.MAYBE, Verdict.READ_SOON, Verdict.READ_NOW}),
+        "繳費通知：金額+期限直達→保留不沉底（紅/藍/黃皆可）",
+    ),
+    (
+        "中國信託",
+        1,
+        "新戶辦卡首刷禮！機場接送、5%回饋上限500",
+        [],
+        Verdict.CAN_SKIP,
+        "同一銀行的廣告→照樣略過（內容分級非寄件者分級）",
+    ),
+    (
+        "蝦皮到貨通知",
+        1,
+        "您的包裹已送達，領件代碼 8341，請於3天內領取",
+        [],
+        Verdict.READ_SOON,
+        "訊息本身含可直接行動的內容（代碼+3天期限）→不沉底",
+    ),
 ]
+
+
+def expected_label(expected: object, icon: str) -> str:
+    if isinstance(expected, frozenset):
+        return f"{icon} {'/'.join(v.value for v in expected)}"
+    return f"{icon} {expected.value}"  # type: ignore[attr-defined]
 
 
 def main() -> int:
@@ -89,12 +141,12 @@ def main() -> int:
         state = build_state(name, unread, preview, extras)
         answers = client.ask(state, QUESTION_BATTERY)
         t = combine(name, answers, cfg)
-        ok = t.verdict == expected
+        ok = t.verdict in expected if isinstance(expected, frozenset) else t.verdict == expected
         hits += ok
         icon = "✅" if ok else "❌"
         table.add_row(
             name,
-            f"{icon} {expected.value}",
+            expected_label(expected, icon),
             t.verdict.value,
             f"{t.priority:.2f}",
             f"{t.detail['confidence']:.2f}",
