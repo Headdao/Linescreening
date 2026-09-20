@@ -88,10 +88,10 @@ def collect_triage(
     try:
         nc_items = nc_provider(cfg)
         store.set_meta("nc_last_ok", datetime.now(UTC).isoformat(timespec="seconds"))
-    except Exception:  # noqa: BLE001 — optional source; skip without alarming
+    except Exception as exc:  # noqa: BLE001 — optional source; skip without alarming
         notices.append(
-            "通知中心來源未啟用（選配）。想用的話：系統設定 → 隱私權與安全性 → "
-            "輔助使用 → 開啟 Linescreening，並將 LINE 通知設為靜默投遞。"
+            f"通知中心來源未啟用（選配）——{exc.__class__.__name__}: {str(exc)[:70]}。"
+            "想用的話：系統設定 → 隱私權與安全性 → 輔助使用 → 開啟 Linescreening。"
         )
 
     # consent: no key consent -> offline unless mock

@@ -32,6 +32,18 @@ def _run_osascript(script: str) -> str:
 
 def open_notification_center() -> str:
     guards.ax_assert_allowed("click_menu_bar_clock")
+    # in-process AX first: attributes to the responsible app (Linescreening),
+    # which the user already granted — unlike osascript children whose AX
+    # needs attribute to the re-exec'd Homebrew python
+    try:
+        from linescreening.axclock import open_notification_center_inprocess
+
+        if open_notification_center_inprocess():
+            return "clicked:inprocess"
+    except Exception:  # noqa: BLE001 — in-process unavailable; try osascript
+        import logging
+
+        logging.getLogger(__name__).debug("in-process AX clock click failed", exc_info=True)
     out = _run_osascript(guards.OSASCRIPT_CLICK_CLOCK)
     if not out.startswith("clicked:"):
         raise NcDumpError("找不到選單列時鐘（AX 無法定位 com.apple.menuextra.clock）")

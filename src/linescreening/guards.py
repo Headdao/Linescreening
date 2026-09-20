@@ -111,6 +111,15 @@ def os_assert_allowed(action: str) -> None:
         raise GuardError(f"OS action {action!r} is not whitelisted")
 
 
+def ax_press_clock(extra: object, owner: str) -> bool:
+    """The ONLY place an AX press may be performed: menu-bar clock only.
+    Returns True on success. All other AX use is read-only."""
+    ax_assert_allowed("click_menu_bar_clock", owner)
+    from ApplicationServices import AXUIElementPerformAction, kAXPressAction
+
+    return AXUIElementPerformAction(extra, kAXPressAction) == 0
+
+
 # ---------------------------------------------------------------------------
 # 3. Static osascript payloads (constants — never built from runtime data)
 # ---------------------------------------------------------------------------

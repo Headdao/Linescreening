@@ -117,7 +117,8 @@ def test_tests_never_touch_production_keychain():
 
 
 def test_no_axpress_outside_guards():
-    pattern = re.compile(r"AXPress|ax_press", re.IGNORECASE)
+    # real AX press invocations (guarded wrapper calls are fine)
+    pattern = re.compile(r"AXUIElementPerformAction|kAXPressAction|performAction_")
     offenders = [
         p.name
         for p in _sources()
