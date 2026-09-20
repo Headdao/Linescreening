@@ -62,7 +62,26 @@ def build_app(dest_dir: Path, port: int = DEFAULT_PORT) -> Path:  # noqa: FBT001
         encoding="utf-8",
     )
     launcher.chmod(0o755)
+    _sign(app)
     return app
+
+
+def _sign(app: Path) -> bool:
+    """Ad-hoc code-sign the bundle so macOS TCC attributes permission
+    requests to 'Linescreening' instead of the underlying python binary.
+    (xattr detritus from Finder must be stripped first or codesign refuses.)"""
+    import sys
+
+    if sys.platform != "darwin":
+        return False
+    subprocess.run(["xattr", "-cr", str(app)], check=False, timeout=15)
+    result = subprocess.run(
+        ["codesign", "--force", "--deep", "--sign", "-", str(app)],
+        capture_output=True,
+        timeout=60,
+        check=False,
+    )
+    return result.returncode == 0
 
 
 def run_app_build(dest: str | None = None, port: int = DEFAULT_PORT) -> int:  # noqa: FBT001, FBT002
@@ -75,6 +94,9 @@ def run_app_build(dest: str | None = None, port: int = DEFAULT_PORT) -> int:  # 
         return 1
 
     console.print(f"[green]✅ 已建立[/green] [bold]{app}[/bold]")
+    console.print(
+        "[dim]已加上本地簽章：權限詢問會掛在 Linescreening 名下，而非底層的 python 執行檔。[/dim]"
+    )
     console.print("雙擊即可開啟儀表板（自動打開瀏覽器）；在 Dock 按 Cmd+Q 或右鍵→結束即可停止。")
     console.print(
         "[yellow]首次使用[/yellow]：若 macOS 詢問「螢幕錄製」權限，請允許 "
