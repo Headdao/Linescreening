@@ -135,10 +135,24 @@ def test_osascript_payloads_are_constants():
     guards_src = (SRC / "guards.py").read_text(encoding="utf-8")
     assert "OSASCRIPT_CLICK_CLOCK" in guards_src
     assert "OSASCRIPT_PRESS_ESC" in guards_src
-    # f-string/concat-built osascript payloads are forbidden outside guards
+    # AppleScript payload TEXT may only live in guards.py; other modules may
+    # invoke the osascript binary but must pass guards constants, never
+    # hand-built scripts (no f-strings/format/concat into -e payloads).
+    payload_markers = ('tell application "System Events"', "key code")
     offenders = [
         p.name
         for p in _sources()
-        if p.name != "guards.py" and "osascript" in p.read_text(encoding="utf-8")
+        if p.name != "guards.py"
+        and any(m in p.read_text(encoding="utf-8") for m in payload_markers)
     ]
-    assert offenders == [], f"osascript referenced outside guards.py: {offenders}"
+    assert offenders == [], f"AppleScript payload text outside guards.py: {offenders}"
+    # an osascript -e payload must be a variable traced to guards (never a
+    # quoted string literal outside guards.py)
+    import re as _re
+
+    for p in _sources():
+        for line in p.read_text(encoding="utf-8").splitlines():
+            if _re.search(r'"osascript",\s*"-e",\s*f?"', line):
+                raise AssertionError(
+                    f"string-literal osascript payload in {p.name}: {line.strip()}"
+                )

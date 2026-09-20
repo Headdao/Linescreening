@@ -12,6 +12,7 @@ import subprocess
 from dataclasses import dataclass
 from typing import Any
 
+from linescreening.cgimage import image_size
 from linescreening.guards import LINE_BUNDLE_ID
 
 # ---------------------------------------------------------------------------
@@ -128,7 +129,7 @@ def check_screen_recording() -> CheckResult:
         return _fail(
             "螢幕錄製權限", "擷取 LINE 視窗失敗 — 請在 系統設定→隱私權與安全性→螢幕錄製 授權終端機"
         )
-    return _ok("螢幕錄製權限", f"成功擷取 {img.getWidth()}x{img.getHeight()} 視窗影像")
+    return _ok("螢幕錄製權限", f"成功擷取 {image_size(img)[0]}x{image_size(img)[1]} 視窗影像")
 
 
 def check_accessibility() -> CheckResult:

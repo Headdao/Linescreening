@@ -101,13 +101,31 @@ def ax_assert_allowed(action: str, target_app: str | None = None) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 3. Static osascript payloads
+# 3. Static osascript payloads (constants — never built from runtime data)
 # ---------------------------------------------------------------------------
-_OSA_FIND_CLOCK = (
-    'tell application "System Events" to tell process "SystemUIServer" to '
-    "get position and size of some attribute ..."
+# Locale-independent: matches the clock by its AXIdentifier, tries both
+# host processes (Tahoe: ControlCenter; older: SystemUIServer).
+OSASCRIPT_CLICK_CLOCK: Final[str] = (
+    'tell application "System Events"\n'
+    '  repeat with procName in {"SystemUIServer", "ControlCenter"}\n'
+    "    try\n"
+    "      tell process procName\n"
+    "        repeat with mb in menu bars\n"
+    "          repeat with mbi in menu bar items of mb\n"
+    "            try\n"
+    '              if value of attribute "AXIdentifier" of mbi is '
+    '"com.apple.menuextra.clock" then\n'
+    "                click mbi\n"
+    '                return "clicked:" & procName\n'
+    "              end if\n"
+    "            end try\n"
+    "          end repeat\n"
+    "        end repeat\n"
+    "      end tell\n"
+    "    end try\n"
+    "  end repeat\n"
+    "end tell\n"
+    'return "notfound"'
 )
-# Exact payloads are finalised in Phase 5 (ncdump); they are defined HERE as
-# constants so that runtime string interpolation can never reach osascript.
-OSASCRIPT_CLICK_CLOCK: Final[str] = _OSA_FIND_CLOCK  # placeholder, replaced in Phase 5
+
 OSASCRIPT_PRESS_ESC: Final[str] = 'tell application "System Events" to key code 53'

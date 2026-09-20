@@ -12,6 +12,7 @@ from pathlib import Path
 from rich.console import Console
 from rich.table import Table
 
+from linescreening.cgimage import image_size
 from linescreening.config import load_config
 
 
@@ -58,7 +59,7 @@ def run_dev(what: str, path: str | None) -> int:
         img = capture.capture_sidebar(cfg)
         dump = capture.save_png(img, Path("~/.linescreening/cache/sidebar_dev.png"))
         items = recognize_cgimage(img, languages=cfg.ocr["recognition_languages"])
-        rows = parse_sidebar(items, float(img.getWidth()), cfg.sidebar)
+        rows = parse_sidebar(items, float(image_size(img)[0]), cfg.sidebar)
         table = Table(title=f"Sidebar rows ({len(rows)}) — dump: {dump}")
         table.add_column("聊天", style="bold")
         table.add_column("未讀", justify="right")

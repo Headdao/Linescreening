@@ -12,6 +12,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from linescreening.cgimage import image_size
+
 
 @dataclass(frozen=True)
 class OcrText:
@@ -73,8 +75,8 @@ def recognize_cgimage(
     if not ok:
         raise RuntimeError("Vision OCR request failed")
 
-    img_w = int(cgimage.getWidth())
-    img_h = int(cgimage.getHeight())
+    img_w = int(image_size(cgimage)[0])
+    img_h = int(image_size(cgimage)[1])
     return _convert(request.results(), img_w, img_h, min_confidence)
 
 

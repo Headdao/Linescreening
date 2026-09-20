@@ -123,3 +123,34 @@ def test_parse_notifications_title_without_body():
     notes = parse_notifications(items, 360.0)
     assert len(notes) == 1
     assert notes[0].body == ""
+
+
+def test_parse_notifications_drops_system_chrome():
+    items = [
+        tok("通知中心", 40, 20),
+        tok("還有 3 則通知", 40, 60),
+        tok("媽媽", 40, 110),
+        tok("現在", 280, 110, w=30),
+        tok("晚餐好了", 40, 138),
+    ]
+    notes = parse_notifications(items, 360.0)
+    assert len(notes) == 1
+    assert notes[0].chat_name == "媽媽"
+
+
+def test_parse_notifications_folds_wrapped_body():
+    items = [
+        tok("Microsoft Outlook", 40, 90),
+        tok("52分鐘前", 268, 90, w=50),
+        tok("我們歡迎您的意見反應！", 40, 118),
+        tok("我們只需要您回答兩個問題。", 40, 146),
+        tok("Osmond", 40, 220),
+        tok("59分鐘前", 268, 220, w=50),
+        tok("我的奶油呢", 40, 248),
+    ]
+    notes = parse_notifications(items, 360.0)
+    assert len(notes) == 2
+    assert notes[0].chat_name == "Microsoft Outlook"
+    assert "意見反應" in notes[0].body and "兩個問題" in notes[0].body
+    assert notes[1].chat_name == "Osmond"
+    assert notes[1].body == "我的奶油呢"

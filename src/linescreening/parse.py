@@ -227,6 +227,12 @@ def _is_preview_line(name_line: Line, candidate: Line) -> bool:
 # ---------------------------------------------------------------------------
 
 
+_NC_NOISE_TITLE = re.compile(
+    r"通知中心|Notification Center|顯示更多|Show More|清除|Clear|編輯小工具|Edit Widgets",
+    re.IGNORECASE,
+)
+
+
 def parse_notifications(items: list[OcrText], img_width: float) -> list[NotificationItem]:
     """OCR observations from the NC panel -> notification items (best effort).
 
@@ -234,15 +240,21 @@ def parse_notifications(items: list[OcrText], img_width: float) -> list[Notifica
     timestamp on the right, body preview below, grouped with a header like
     「LINE」 + 還有 N 則通知. We keep it deliberately simple: a line without
     a body below is still emitted (body=''), so triage never drops a chat.
+    Wrapped body lines are folded into the preceding item, and system chrome
+    (panel title, 還有 N 則, buttons) is dropped.
     """
     lines = cluster_lines(items)
-    out: list[NotificationItem] = []
+    raw: list[NotificationItem] = []
     i = 0
     while i < len(lines):
         line = lines[i]
         stripped = line.text.strip()
-        # App group header ("LINE" alone / 「還有 N 則…」)
-        if re.fullmatch(r"LINE|還有\s*\d+\s*(則|個).*", stripped) or not stripped:
+        # App group header ("LINE" alone / 「還有 N 則…」 / chrome buttons)
+        if (
+            re.fullmatch(r"LINE|還有\s*\d+\s*(則|個).*", stripped)
+            or not stripped
+            or _NC_NOISE_TITLE.fullmatch(stripped)
+        ):
             i += 1
             continue
         time_toks = [t for t in line.tokens if looks_like_time(t.text)]
@@ -259,8 +271,30 @@ def parse_notifications(items: list[OcrText], img_width: float) -> list[Notifica
             i += 2
         else:
             i += 1
-        out.append(NotificationItem(chat_name=title, body=body, time_text=time_text))
+        if _NC_NOISE_TITLE.fullmatch(title):
+            continue
+        raw.append(NotificationItem(chat_name=title, body=body, time_text=time_text))
+
+    # Fold continuation lines: an item with no time and empty-ish profile is a
+    # wrapped body of the previous item when the previous one has a body.
+    out: list[NotificationItem] = []
+    for item in raw:
+        if out and not item.time_text and out[-1].body and not _looks_like_new_title(out[-1], item):
+            prev = out[-1]
+            out[-1] = NotificationItem(
+                chat_name=prev.chat_name,
+                body=(prev.body + item.chat_name).strip(" "),
+                time_text=prev.time_text,
+            )
+        else:
+            out.append(item)
     return out
+
+
+def _looks_like_new_title(prev: NotificationItem, candidate: NotificationItem) -> bool:
+    """Heuristic: a new notification title usually follows a blank gap; here we
+    treat a candidate as a new title when it carries its own timestamp."""
+    return bool(candidate.time_text)
 
 
 def _nc_is_body(title_line: Line, candidate: Line) -> bool:
