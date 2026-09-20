@@ -202,9 +202,15 @@ async function refreshOnboarding() {
   ob.style.display = "";
   document.getElementById("mainview").style.display = "none";
   const rows = Object.entries(s.steps).map(([id, st]) => stepHtml(id, st)).join("");
+  const pending = Object.entries(s.steps).filter(([id, st]) => st.critical && !st.ok);
+  const solo = pending.length === 1 && pending[0][0] === "screen"
+    ? `<div class="warn" style="margin-top:12px">只剩最後一步：請確認 螢幕錄製 的
+       <b>Linescreening</b> 開關已開啟，然後<b>結束 App（Dock 右鍵→結束）再雙擊重開</b>，
+       這頁就會自動完成。</div>` : "";
   ob.innerHTML = `<h2>第一次使用：4 個步驟</h2>
     <p class="sub">每完成一步會自動打勾。macOS 的權限詢問請允許「Linescreening」。</p>
     ${rows}
+    ${solo}
     <div class="h" style="color:#6b7382;margin-top:10px">※ 允許螢幕錄製後請重開 App 才生效。</div>
     <button class="skip" onclick="skipSetup()">先跳過，用離線模式（只列未讀、不判讀）</button>`;
   if (!pollTimer) pollTimer = setInterval(refreshOnboarding, 4000);
