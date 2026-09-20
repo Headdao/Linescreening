@@ -53,6 +53,11 @@ def _activate(app_name: str) -> None:
     subprocess.run(["open", "-a", app_name], check=False, timeout=10)
 
 
+def activate_app(app_name: str) -> None:
+    """Public wrapper: focus an app (whitelisted OS action; no input sent)."""
+    _activate(app_name)
+
+
 def _capture_line_candidate(quartz: Any, win: dict) -> Any:
     """Validate + capture one window dict, or None if not capturable."""
     bounds = win.get("kCGWindowBounds", {})

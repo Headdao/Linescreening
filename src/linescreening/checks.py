@@ -111,6 +111,45 @@ def check_line_window() -> CheckResult:
 # ---------------------------------------------------------------------------
 
 
+def screen_recording_probe() -> bool:
+    """Generic capture test that does NOT need LINE: capture ANY on-screen
+    layer-0 window. Used by the dashboard first-run onboarding so the check
+    works before the user has opened LINE. Returns True when capturable."""
+    try:
+        from Quartz import (
+            CGRectNull,
+            CGWindowListCopyWindowInfo,
+            CGWindowListCreateImage,
+            kCGNullWindowID,
+            kCGWindowImageNominalResolution,
+            kCGWindowListExcludeDesktopElements,
+            kCGWindowListOptionIncludingWindow,
+            kCGWindowListOptionOnScreenOnly,
+        )
+    except ImportError:
+        return False
+
+    infos = CGWindowListCopyWindowInfo(
+        kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements,
+        kCGNullWindowID,
+    )
+    for info in infos or []:
+        b = info.get("kCGWindowBounds") or {}
+        if (
+            info.get("kCGWindowLayer", -1) == 0
+            and b.get("Width", 0) >= 300
+            and b.get("Height", 0) >= 200
+        ):
+            img = CGWindowListCreateImage(
+                CGRectNull,
+                kCGWindowListOptionIncludingWindow,
+                info["kCGWindowNumber"],
+                kCGWindowImageNominalResolution,
+            )
+            return img is not None
+    return False
+
+
 def check_screen_recording() -> CheckResult:
     """Try capturing the LINE window; without TCC permission the capture
     returns None (macOS refuses rather than returning a wallpaper image on

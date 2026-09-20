@@ -35,6 +35,14 @@ DEFAULT_PORT = 8765
 _LAUNCHER = """#!/bin/bash
 # Linescreening — double-click launcher (auto-generated, safe to delete)
 REPO="@REPO@"
+if [ ! -d "$REPO/src/linescreening" ]; then
+  MSG="找不到專案資料夾：$REPO\\nLinescreening 需要它才能執行；"
+  MSG="$MSG\\n若已搬移或刪除，請重新執行 uv run linescreening app 產生 App。"
+  osascript -e "display dialog \"$MSG\" with title \"Linescreening\" "
+    -e "buttons {\"好\"} default button \"好\" with icon caution" >/dev/null 2>&1
+    >/dev/null 2>&1
+  exit 1
+fi
 SITE="$(echo "$REPO"/.venv/lib/python3*/site-packages)"
 export PYTHONPATH="$REPO/src:$SITE${PYTHONPATH:+:$PYTHONPATH}"
 cd "$REPO" || exit 1

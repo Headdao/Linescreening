@@ -74,6 +74,34 @@ def test_api_history_shape(server):
     assert isinstance(json.loads(body), list)
 
 
+def test_setup_status_shape(server):
+    status, body = _get(server + "/api/setup/status")
+    assert status == 200
+    payload = json.loads(body)
+    assert set(payload["steps"]) == {"screen", "line", "key", "ax"}
+    assert isinstance(payload["done"], bool)
+    for st in payload["steps"].values():
+        assert set(st) >= {"ok", "critical", "title", "hint"}
+
+
+def test_setup_key_rejects_blank(server):
+    import urllib.request
+
+    req = urllib.request.Request(
+        server + "/api/setup/key",
+        data=json.dumps({"key": "  "}).encode(),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:  # noqa: S310
+            status, body = resp.status, resp.read()
+    except urllib.error.HTTPError as e:
+        status, body = e.code, e.read()
+    assert status == 400
+    assert "key" in json.loads(body)["error"]
+
+
 def test_404(server):
     status, _ = _get(server + "/nope")
     assert status == 404
