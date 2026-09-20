@@ -35,7 +35,7 @@ DEFAULTS: dict[str, Any] = {
     "thresholds": {
         "read_now_urgency_norm": 0.50,
         "read_now_expects_reply": 0.60,
-        "read_soon_priority": 0.45,
+        "read_soon_priority": 0.35,
         "can_skip_automated": 0.70,
         "can_skip_casual": 0.80,
         "low_confidence": 0.50,

@@ -16,7 +16,7 @@ def test_repo_yaml_overrides_defaults(repo_root):
     cfg = load_config()
     # values from shipped config.yaml must have merged over DEFAULTS
     assert cfg.raw["weights"]["urgency"] == DEFAULTS["weights"]["urgency"]
-    assert cfg.raw["thresholds"]["read_soon_priority"] == 0.45
+    assert cfg.raw["thresholds"]["read_soon_priority"] == 0.35
 
 
 def test_deep_merge_nested():

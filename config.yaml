@@ -17,9 +17,9 @@ weights:
   casual_social_penalty: 0.10
 
 thresholds:
-  read_now_urgency_norm: 0.50    # urgency_norm >= this  -> READ_NOW
+  read_now_urgency_norm: 0.50    # urgency_norm strictly above this -> READ_NOW
   read_now_expects_reply: 0.60    # expects_reply > this AND importance >= 2 -> READ_NOW
-  read_soon_priority: 0.45        # priority >= this      -> READ_SOON
+  read_soon_priority: 0.35        # priority >= this      -> READ_SOON
   can_skip_automated: 0.70        # automated_broadcast > this -> CAN_SKIP
   can_skip_casual: 0.80           # casual_social > this      -> CAN_SKIP
   low_confidence: 0.50            # answer confidence < this -> flag MAYBE (low confidence)
