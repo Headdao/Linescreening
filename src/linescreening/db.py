@@ -51,8 +51,7 @@ class Store:
     # -- notifications -------------------------------------------------
     def add_notification(self, chat_name: str, body: str, source: str) -> None:
         self._conn.execute(
-            "INSERT INTO notifications (chat_name, body, source, captured_at) "
-            "VALUES (?, ?, ?, ?)",
+            "INSERT INTO notifications (chat_name, body, source, captured_at) VALUES (?, ?, ?, ?)",
             (chat_name, body, source, _utcnow()),
         )
         self._conn.commit()
@@ -95,9 +94,7 @@ class Store:
     # -- lifecycle -----------------------------------------------------
     def purge_older_than(self, retention_days: int) -> int:
         """Delete rows older than `retention_days`. Returns deleted count."""
-        cutoff = (datetime.now(UTC) - timedelta(days=retention_days)).isoformat(
-            timespec="seconds"
-        )
+        cutoff = (datetime.now(UTC) - timedelta(days=retention_days)).isoformat(timespec="seconds")
         cur = self._conn.execute("DELETE FROM notifications WHERE captured_at < ?", (cutoff,))
         self._conn.commit()
         return cur.rowcount

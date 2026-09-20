@@ -41,8 +41,9 @@ def main(argv: list[str] | None = None) -> int:
         print("Triage lands in Phase 8 (capture A/C: Phase 4/5, decision model: Phase 7).")
         return 0
     if args.command == "doctor":
-        print("Doctor lands in Phase 2.")
-        return 0
+        from linescreening.doctor import run_doctor
+
+        return run_doctor(privacy=getattr(args, "privacy", False))
     if args.command == "watch":
         print("Banner watcher lands in Phase 6 (banner mode only).")
         return 0
