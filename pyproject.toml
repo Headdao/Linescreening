@@ -25,6 +25,7 @@ dev = [
     "ruff>=0.6",
     "mypy>=1.11",
     "python-dotenv>=1.0",
+    "pyobjc-framework-CoreText>=10.0",
 ]
 
 [build-system]

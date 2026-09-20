@@ -31,6 +31,9 @@ def _build_parser() -> argparse.ArgumentParser:
     sub.add_parser("watch", help="foreground banner watcher (banner mode only)")
     sub.add_parser("check", help="verify Jev API connectivity")
     sub.add_parser("purge", help="delete ALL local data, keychain entry, launchd agent")
+    dev = sub.add_parser("dev", help=argparse.SUPPRESS)  # calibration helpers
+    dev.add_argument("what", choices=["sidebar", "nc", "ocr-file"])
+    dev.add_argument("path", nargs="?", help="image path for ocr-file")
 
     return parser
 
@@ -59,6 +62,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "purge":
         print("Purge lands in Phase 8.")
         return 0
+    if args.command == "dev":
+        from linescreening.devtools import run_dev
+
+        return run_dev(args.what, getattr(args, "path", None))
     parser.print_help()
     return 1
 
