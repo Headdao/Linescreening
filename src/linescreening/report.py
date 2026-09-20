@@ -77,7 +77,8 @@ def collect_triage(
     store = Store(cfg.db_path)
     store.purge_older_than(int(cfg.data["retention_days"]))
 
-    warnings: list[str] = []
+    warnings: list[str] = []  # blocking problems (sidebar capture, consent)
+    notices: list[str] = []  # optional-source skips — informational, never scary
     sidebar_rows: list[SidebarRow] = []
     nc_items: list[NotificationItem] = []
     try:
@@ -87,8 +88,11 @@ def collect_triage(
     try:
         nc_items = nc_provider(cfg)
         store.set_meta("nc_last_ok", datetime.now(UTC).isoformat(timespec="seconds"))
-    except Exception as exc:  # noqa: BLE001
-        warnings.append(f"通知中心擷取失敗：{exc}")
+    except Exception:  # noqa: BLE001 — optional source; skip without alarming
+        notices.append(
+            "通知中心來源未啟用（選配）。想用的話：系統設定 → 隱私權與安全性 → "
+            "輔助使用 → 開啟 Linescreening，並將 LINE 通知設為靜默投遞。"
+        )
 
     # consent: no key consent -> offline unless mock
     if not offline and not mock and (store.get_meta("cloud_consent") == "denied"):
@@ -114,6 +118,7 @@ def collect_triage(
             "ran_at": datetime.now(UTC).isoformat(timespec="seconds"),
             "mode": "offline" if offline else ("mock" if mock else "live"),
             "warnings": warnings,
+            "notices": notices,
             "chats": [],
         }
 
@@ -150,6 +155,7 @@ def collect_triage(
         "ran_at": datetime.now(UTC).isoformat(timespec="seconds"),
         "mode": "offline" if offline else ("mock" if mock else "live"),
         "warnings": warnings,
+        "notices": notices,
         "chats": [
             {
                 "name": t.chat_name,
@@ -199,10 +205,14 @@ def run_triage(
         console.print(Panel("目前沒有可見的未讀聊天 🎉", title="linescreening triage"))
         for w in payload["warnings"]:
             console.print(f"[yellow]⚠ {w}[/yellow]")
+        for n in payload.get("notices", []):
+            console.print(f"[dim]ℹ {n}[/dim]")
     elif json_output:
         print(json.dumps(payload, ensure_ascii=False, indent=2))  # noqa: T201 - clean stdout for --json
     else:
         _render(console, triages, payload["mode"] == "offline", payload["warnings"])
+        for n in payload.get("notices", []):
+            console.print(f"[dim]ℹ {n}[/dim]")
     return True
 
 

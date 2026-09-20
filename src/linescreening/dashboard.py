@@ -46,6 +46,7 @@ _PAGE = """<!doctype html>
   main { max-width: 880px; margin: 0 auto; padding: 20px 22px 60px; }
   .warn { background: #3a2f14; color: #ffd479; border-radius: 8px;
           padding: 8px 12px; font-size: 13px; margin: 10px 0; }
+  .notice { color: #6b7382; font-size: 12px; margin: 6px 0; }
   .group { margin: 22px 0 8px; font-size: 13px; color: #8b93a3;
            letter-spacing: 1px; }
   .card { display: flex; gap: 14px; background: #171a21; border: 1px solid #23262e;
@@ -101,7 +102,8 @@ async function run() {
 }
 function render(data) {
   document.getElementById("warnings").innerHTML =
-    (data.warnings || []).map(w => `<div class="warn">⚠ ${w}</div>`).join("");
+    (data.warnings || []).map(w => `<div class="warn">⚠ ${w}</div>`).join("") +
+    (data.notices || []).map(n => `<div class="notice">ℹ ${n}</div>`).join("");
   const root = document.getElementById("content");
   if (!data.chats.length) {
     root.innerHTML = '<div class="empty">目前沒有可見的未讀聊天 🎉</div>';

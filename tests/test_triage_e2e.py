@@ -116,4 +116,24 @@ def test_degrades_gracefully_when_sources_fail():
     )
     assert ok
     text = console.export_text()
-    assert "側欄擷取失敗" in text and "通知中心擷取失敗" in text
+    # sidebar failure = blocking warning; NC failure = optional notice (never scary)
+    assert "側欄擷取失敗" in text
+    assert "通知中心來源未啟用" in text
+    assert "通知中心擷取失敗" not in text
+
+
+def test_optional_nc_skip_is_a_notice_not_a_warning(capsys):
+    from linescreening.report import collect_triage
+
+    payload = collect_triage(
+        cfg=load_config(),
+        sidebar_provider=lambda cfg: [
+            SidebarRow(chat_name="媽媽", preview="晚餐？", time_text="下午6:00", unread=1)
+        ],
+        nc_provider=lambda cfg: (_ for _ in ()).throw(RuntimeError("AX denied")),
+        mock=True,
+    )
+    assert payload["warnings"] == []
+    assert len(payload["notices"]) == 1
+    assert "輔助使用" in payload["notices"][0]
+    assert [c["name"] for c in payload["chats"]] == ["媽媽"]
