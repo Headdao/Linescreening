@@ -19,7 +19,12 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     sub = parser.add_subparsers(dest="command")
 
-    sub.add_parser("setup", help="first-run guided setup wizard (interactive)")
+    setup = sub.add_parser("setup", help="first-run guided setup wizard (interactive)")
+    setup.add_argument(
+        "--step",
+        metavar="NAME",
+        help="redo a single step (env/screen/ax/notify/key/watcher/smoke/summary)",
+    )
     sub.add_parser("triage", help="capture, ask Jev, print the ranked report")
     doctor = sub.add_parser("doctor", help="non-interactive health check")
     doctor.add_argument("--privacy", action="store_true", help="show what is seen/stored/sent")
@@ -35,8 +40,9 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.command in (None, "setup"):
-        print("🧙 Setup wizard lands in Phase 3 — coming right up.")
-        return 0
+        from linescreening.setup_wizard import run_wizard
+
+        return run_wizard(only_step=getattr(args, "step", None))
     if args.command == "triage":
         print("Triage lands in Phase 8 (capture A/C: Phase 4/5, decision model: Phase 7).")
         return 0
