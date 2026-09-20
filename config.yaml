@@ -22,7 +22,7 @@ thresholds:
   read_soon_priority: 0.35        # priority >= this      -> READ_SOON
   can_skip_automated: 0.70        # automated_broadcast > this -> CAN_SKIP
   can_skip_casual: 0.80           # casual_social > this      -> CAN_SKIP
-  low_confidence: 0.50            # answer confidence < this -> flag MAYBE (low confidence)
+  low_confidence: 0.35            # answer confidence < this -> flag MAYBE (low confidence)
 
 # On-device OCR (Apple Vision).
 ocr:

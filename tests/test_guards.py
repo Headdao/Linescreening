@@ -96,6 +96,26 @@ def test_no_shell_true_anywhere():
     assert offenders == [], f"shell=True found in: {offenders}"
 
 
+def test_tests_never_touch_production_keychain():
+    """A test once deleted the user's real API key by calling delete_key()
+    with the default service. Tests may only use an isolated service."""
+    tests_dir = Path(__file__).resolve().parent
+    for p in sorted(tests_dir.glob("*.py")):
+        if p.name == "test_guards.py":
+            continue  # the guard itself mentions the API names
+        src = p.read_text(encoding="utf-8")
+        if "keychain" not in src:
+            continue
+        for line in src.splitlines():
+            stripped = line.strip()
+            if stripped.startswith(("#", '"""', '"', "#")) or stripped.startswith("*"):
+                continue  # comments / docstrings
+            if "delete_key(" in line or "store_key(" in line:
+                assert "TEST_SERVICE" in line or "service=" in line or "def " in line, (
+                    f"{p.name}: keychain mutation without TEST_SERVICE: {line.strip()}"
+                )
+
+
 def test_no_axpress_outside_guards():
     pattern = re.compile(r"AXPress|ax_press", re.IGNORECASE)
     offenders = [

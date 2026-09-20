@@ -164,11 +164,20 @@ class RealJevClient:
 def make_client(mock: bool, model: str = "jev-latest") -> JevClient:  # noqa: FBT001
     if mock:
         return MockJevClient()
-    # Keychain lookup lands in Phase 2; until then require env key.
     import os
+    import sys
 
-    if os.environ.get("TYPESAFE_API_KEY"):
-        return RealJevClient(model=model)
+    api_key = None
+    if sys.platform == "darwin":
+        try:
+            from linescreening import keychain
+
+            api_key = keychain.load_key()
+        except Exception:  # noqa: BLE001 — keychain locked/unavailable
+            api_key = None
+    api_key = api_key or os.environ.get("TYPESAFE_API_KEY")
+    if api_key:
+        return RealJevClient(api_key=api_key, model=model)
     raise RuntimeError(
         "No API key available. Run `linescreening setup` (stores the key in the "
         "Keychain) or set TYPESAFE_API_KEY for CI use."

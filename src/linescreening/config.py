@@ -38,7 +38,7 @@ DEFAULTS: dict[str, Any] = {
         "read_soon_priority": 0.35,
         "can_skip_automated": 0.70,
         "can_skip_casual": 0.80,
-        "low_confidence": 0.50,
+        "low_confidence": 0.35,
     },
     "ocr": {
         "recognition_languages": ["zh-Hant", "zh-Hans", "en-US"],
