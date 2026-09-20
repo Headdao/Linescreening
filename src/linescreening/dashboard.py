@@ -213,10 +213,7 @@ async function refreshOnboarding() {
     ? `<div class="warn" style="margin-top:12px">只剩最後一步：開啟 螢幕錄製，把
        <b>Linescreening</b> 開關打開，然後<b>結束 App（Dock 右鍵→結束）再雙擊重開</b>。
        <button onclick="openPane('screen')">開啟設定頁</button></div>` : "";
-  if (pending.some(([id]) => id === "screen") && !sessionStorage.ls_pane_opened) {
-    sessionStorage.ls_pane_opened = "1";
-    openPane("screen");
-  }
+  if (pending.some(([id]) => id === "screen")) maybeOpenPane();
   ob.innerHTML = `<h2>第一次使用：4 個步驟</h2>
     <p class="sub">每完成一步會自動打勾。macOS 的權限詢問請允許「Linescreening」。</p>
     ${rows}
@@ -225,6 +222,14 @@ async function refreshOnboarding() {
     <button class="skip" onclick="skipSetup()">先跳過，用離線模式（只列未讀、不判讀）</button>`;
   if (!pollTimer) pollTimer = setInterval(refreshOnboarding, 4000);
 }
+function maybeOpenPane() {
+  if (sessionStorage.ls_pane_opened) return;
+  if (document.visibilityState !== "visible") return;
+  sessionStorage.ls_pane_opened = "1";
+  openPane("screen");
+}
+setTimeout(maybeOpenPane, 2500);
+document.addEventListener("visibilitychange", maybeOpenPane);
 async function openPane(which) {
   await fetch("/api/setup/open-pane", {
     method: "POST", headers: {"Content-Type": "application/json"},
