@@ -41,8 +41,19 @@ def _base_query(service: str) -> dict[Any, Any]:
     }
 
 
+def _sanitize(api_key: str) -> str:
+    """Strip control chars / ANSI escape junk that terminal pastes can inject."""
+    import re
+
+    cleaned = re.sub(r"[\x00-\x1f\x7f]", "", api_key).strip()
+    if not cleaned:
+        raise ValueError("API key is empty after sanitising")
+    return cleaned
+
+
 def store_key(api_key: str, service: str = KEYCHAIN_SERVICE) -> None:
     """Create or update the Keychain entry (delete + add)."""
+    api_key = _sanitize(api_key)
     delete_key(service)
     # pyobjc: out-param is None -> returns (status, itemRef)
     outcome = SecItemAdd(
@@ -52,6 +63,23 @@ def store_key(api_key: str, service: str = KEYCHAIN_SERVICE) -> None:
     status = outcome[0] if isinstance(outcome, tuple) else outcome
     if status != 0:  # errSecSuccess
         raise RuntimeError(f"SecItemAdd failed with status {status}")
+
+
+def store_key_from_clipboard(service: str = KEYCHAIN_SERVICE) -> str:
+    """Store the API key currently on the system clipboard.
+
+    Terminal paste into getpass() corrupted a key once (ANSI arrow-key
+    escapes got captured); reading the clipboard directly cannot lose or
+    inject characters. The clipboard is NOT cleared automatically."""
+    from AppKit import NSPasteboard
+
+    pb = NSPasteboard.generalPasteboard()
+    raw = pb.stringForType_("public.utf8-plain-text")
+    if not raw:
+        raise RuntimeError("剪貼簿沒有文字內容 — 請先在瀏覽器複製 API key（Cmd+C）")
+    key = _sanitize(str(raw))
+    store_key(key, service)
+    return key
 
 
 def load_key(service: str = KEYCHAIN_SERVICE) -> str | None:
