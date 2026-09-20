@@ -1,0 +1,52 @@
+# linescreening configuration — all thresholds/weights tunable here.
+# After editing, run `linescreening doctor` to sanity-check values.
+
+jev:
+  model: jev-latest
+  # Timeout per chat request (seconds). Jev answers in ~100ms; generous margin.
+  timeout_s: 5.0
+
+# Composite scoring & verdicts (Phase 7). Weights are normalised in code.
+weights:
+  urgency: 0.30
+  importance: 0.30
+  expects_reply: 0.20
+  asks_action: 0.10
+  time_sensitive: 0.10
+  automated_broadcast_penalty: 0.25
+  casual_social_penalty: 0.10
+
+thresholds:
+  read_now_urgency_norm: 0.50    # urgency_norm >= this  -> READ_NOW
+  read_now_expects_reply: 0.60    # expects_reply > this AND importance >= 2 -> READ_NOW
+  read_soon_priority: 0.45        # priority >= this      -> READ_SOON
+  can_skip_automated: 0.70        # automated_broadcast > this -> CAN_SKIP
+  can_skip_casual: 0.80           # casual_social > this      -> CAN_SKIP
+  low_confidence: 0.50            # answer confidence < this -> flag MAYBE (low confidence)
+
+# On-device OCR (Apple Vision).
+ocr:
+  recognition_languages: [zh-Hant, zh-Hans, ja-JP, en-US]
+  min_confidence: 0.5             # drop OCR observations below this
+
+# Sidebar geometry (Phase 4). Fractions of the LINE window rect; tune after
+# real-window calibration. sidebar occupies the left portion of the window.
+sidebar:
+  width_fraction: 0.28            # left 28% of the LINE window
+  top_inset_fraction: 0.06        # skip window title/toolbar area
+  row_max_count: 40               # safety cap on parsed rows
+
+# Notification Center panel (Phase 5). Panel slides from the right edge.
+nc_panel:
+  width_fraction: 0.30            # right 30% of the screen
+  capture_settle_s: 0.7           # wait for panel animation before OCR
+
+# Local data minimisation.
+data:
+  retention_days: 3               # purge older rows on every run
+  db_path: ~/.linescreening/linescreening.sqlite
+
+watcher:                          # banner mode only (optional)
+  interval_s: 0.6
+  banner_region_fraction_w: 0.25  # right quarter of screen width
+  banner_region_px_h: 260         # below the menu bar

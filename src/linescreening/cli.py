@@ -1,0 +1,60 @@
+"""Command-line entry point.
+
+Subcommands land phase by phase; unimplemented ones explain what's coming.
+"""
+
+from __future__ import annotations
+
+import argparse
+import sys
+
+from linescreening import __version__
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="linescreening",
+        description="Triage unread LINE chats on macOS without triggering read receipts.",
+    )
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
+    sub = parser.add_subparsers(dest="command")
+
+    sub.add_parser("setup", help="first-run guided setup wizard (interactive)")
+    sub.add_parser("triage", help="capture, ask Jev, print the ranked report")
+    doctor = sub.add_parser("doctor", help="non-interactive health check")
+    doctor.add_argument("--privacy", action="store_true", help="show what is seen/stored/sent")
+    sub.add_parser("watch", help="foreground banner watcher (banner mode only)")
+    sub.add_parser("check", help="verify Jev API connectivity")
+    sub.add_parser("purge", help="delete ALL local data, keychain entry, launchd agent")
+
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = _build_parser()
+    args = parser.parse_args(argv)
+
+    if args.command in (None, "setup"):
+        print("🧙 Setup wizard lands in Phase 3 — coming right up.")
+        return 0
+    if args.command == "triage":
+        print("Triage lands in Phase 8 (capture A/C: Phase 4/5, decision model: Phase 7).")
+        return 0
+    if args.command == "doctor":
+        print("Doctor lands in Phase 2.")
+        return 0
+    if args.command == "watch":
+        print("Banner watcher lands in Phase 6 (banner mode only).")
+        return 0
+    if args.command == "check":
+        print("Jev connectivity check lands in Phase 2 (needs keychain first).")
+        return 0
+    if args.command == "purge":
+        print("Purge lands in Phase 8.")
+        return 0
+    parser.print_help()
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

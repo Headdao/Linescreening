@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    # macOS runner: pyobjc / Vision bindings need macOS wheels.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Sync dependencies
+        run: uv sync --dev
+
+      - name: Lint (ruff)
+        run: uv run ruff check .
+
+      - name: Type check (mypy)
+        run: uv run mypy
+
+      - name: Security red-line tests + unit tests
+        run: uv run pytest -v
+
+      - name: Guard: no sensitive files tracked
+        run: |
+          if git ls-files | grep -Ei '\.env$|\.sqlite(-wal|-shm)?$|\.png$|\.jpg$' | grep -v '^docs/'; then
+            echo "::error::Sensitive file staged for commit (env/sqlite/screenshot)"
+            exit 1
+          fi
