@@ -41,10 +41,10 @@ DEFAULTS: dict[str, Any] = {
         "low_confidence": 0.50,
     },
     "ocr": {
-        "recognition_languages": ["zh-Hant", "zh-Hans", "ja-JP", "en-US"],
-        "min_confidence": 0.5,
+        "recognition_languages": ["zh-Hant", "zh-Hans", "en-US"],
+        "min_confidence": 0.3,
     },
-    "sidebar": {"width_fraction": 0.28, "top_inset_fraction": 0.06, "row_max_count": 40},
+    "sidebar": {"width_fraction": 0.98, "top_inset_fraction": 0.15, "row_max_count": 40},
     "nc_panel": {"width_fraction": 0.30, "capture_settle_s": 0.7},
     "data": {"retention_days": 3, "db_path": "~/.linescreening/linescreening.sqlite"},
     "watcher": {

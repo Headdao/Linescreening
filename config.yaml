@@ -26,14 +26,14 @@ thresholds:
 
 # On-device OCR (Apple Vision).
 ocr:
-  recognition_languages: [zh-Hant, zh-Hans, ja-JP, en-US]
-  min_confidence: 0.5             # drop OCR observations below this
+  recognition_languages: [zh-Hant, zh-Hans, en-US]
+  min_confidence: 0.3             # drop OCR observations below this
 
 # Sidebar geometry (Phase 4). Fractions of the LINE window rect; tune after
 # real-window calibration. sidebar occupies the left portion of the window.
 sidebar:
-  width_fraction: 0.28            # left 28% of the LINE window
-  top_inset_fraction: 0.06        # skip window title/toolbar area
+  width_fraction: 0.98            # left 28% of the LINE window
+  top_inset_fraction: 0.15        # skip window title/toolbar area
   row_max_count: 40               # safety cap on parsed rows
 
 # Notification Center panel (Phase 5). Panel slides from the right edge.

@@ -6,13 +6,12 @@ from linescreening.ocr import OcrText
 from linescreening.parse import (
     cluster_lines,
     join_tokens,
-    looks_like_count,
     looks_like_time,
+    normalize_text,
     parse_notifications,
     parse_sidebar,
+    split_trailing_time,
 )
-
-SIDEBAR_W = 360.0
 
 
 def tok(text: str, x: float, y: float, w: float = None, h: float = 22.0) -> OcrText:  # noqa: RUF013
@@ -20,22 +19,28 @@ def tok(text: str, x: float, y: float, w: float = None, h: float = 22.0) -> OcrT
     return OcrText(text=text, confidence=0.95, x=x, y=y, w=w, h=h)
 
 
-# --- a realistic sidebar: 3 chats, one with unread badge ---------------------
+# --- realistic sidebar (calibrated against real LINE Mac 2026-09) ------------
+# geometry: badge on avatar column (x≈80), names/previews x≈200, times x≈460
+SIDEBAR_W = 590.0
 FIXTURE = [
-    # row 1: 媽媽 (3 unread) — name line + time + preview line
-    tok("媽媽", 64, 100),
-    tok("下午2:35", 280, 100, w=60),
-    tok("今晚要回來吃飯嗎？", 64, 128),
-    tok("3", 330, 128, w=14, h=14),
-    # row 2: LINE 官方帳號 (no badge)
-    tok("LINE 官方帳號", 64, 190),
-    tok("週五", 292, 190, w=30),
-    tok("限時優惠 全站8折", 64, 218),
-    # row 3: 專案群組, badge on its own line between rows
-    tok("專案群組", 64, 280),
-    tok("上午9:02", 280, 280, w=60),
-    tok("我傳了新版的簡報，麻煩看一下", 64, 308),
-    tok("12", 330, 308, w=16, h=14),
+    # row 1: 媽媽 (3 unread on avatar) — name + time + wrapped preview
+    tok("3", 80, 160, w=16, h=16),
+    tok("媽媽", 200, 160),
+    tok("下午4:50", 460, 160, w=54),
+    tok("先約10/3下午，你中午來永和姐家吃午飯，", 200, 186),
+    tok("我煮，姐去法國", 200, 204),
+    # row 2: LINE 官方帳號 (no badge, 999+ on the row above is separate)
+    tok("LINE 官方帳號", 200, 240),
+    tok("週五", 460, 240, w=30),
+    tok("限時優惠 全站8折 coupon", 200, 266),
+    # row 3: 專案群組 (12 unread on avatar)
+    tok("12", 80, 320, w=18, h=16),
+    tok("專案群組", 200, 320),
+    tok("上午9:02", 460, 320, w=54),
+    tok("Kevin：我傳了新版的簡報，麻煩看一下", 200, 346),
+    # bottom noise: VOOM row + ad label
+    tok("AD", 120, 660, w=18, h=10),
+    tok("即時戰報看 LINE TODAY", 200, 692),
 ]
 
 
@@ -51,15 +56,8 @@ def test_looks_like_time():
     assert not looks_like_time("優惠到 12/31 前有效")
 
 
-def test_looks_like_count():
-    assert looks_like_count("3")
-    assert looks_like_count("47")
-    assert not looks_like_count("3a")
-    assert not looks_like_count("1234")
-
-
 def test_join_tokens_respects_gap():
-    a, b = tok("媽媽", 64, 100, w=32), tok("下午2:35", 280, 100, w=60)
+    a, b = tok("媽媽", 200, 100, w=32), tok("下午2:35", 460, 100, w=60)
     joined = join_tokens([a, b])
     assert " " in joined  # wide gap -> separator
     assert join_tokens([tok("AB", 0, 0, w=20), tok("CD", 22, 0, w=20)]) == "ABCD"
@@ -76,17 +74,35 @@ def test_parse_sidebar_full_fixture():
     rows = parse_sidebar(FIXTURE, SIDEBAR_W)
     assert len(rows) == 3
     assert rows[0].chat_name == "媽媽"
-    assert rows[0].preview == "今晚要回來吃飯嗎？3" or rows[0].preview == "今晚要回來吃飯嗎？"
+    assert "永和姐家" in rows[0].preview and "法國" in rows[0].preview  # wrapped
     assert rows[0].unread == 3
-    assert rows[0].time_text == "下午2:35"
+    assert rows[0].time_text == "下午4:50"
 
     assert rows[1].chat_name == "LINE 官方帳號"
     assert rows[1].unread is None
-    assert rows[1].preview == "限時優惠 全站8折"
+    assert "coupon" in rows[1].preview
 
     assert rows[2].chat_name == "專案群組"
     assert rows[2].unread == 12
     assert "簡報" in rows[2].preview
+
+
+def test_parse_sidebar_drops_noise_rows():
+    rows = parse_sidebar(FIXTURE, SIDEBAR_W)
+    names = [r.chat_name for r in rows]
+    assert "AD" not in names
+    assert not any("LINE TODAY" in n for n in names)
+
+
+def test_parse_sidebar_badge_999plus():
+    items = [
+        tok("999+", 78, 132, w=30, h=12),
+        tok("周鳳珠", 202, 160),
+        tok("下午4:50", 467, 160, w=54),
+    ]
+    rows = parse_sidebar(items, SIDEBAR_W)
+    assert len(rows) == 1
+    assert rows[0].unread == 999
 
 
 def test_parse_sidebar_caps_rows():
@@ -96,11 +112,33 @@ def test_parse_sidebar_caps_rows():
 
 
 def test_parse_sidebar_name_only_row():
-    items = [tok("某人", 64, 100), tok("中午12:00", 270, 100, w=70)]
+    items = [tok("某人", 200, 100), tok("中午12:00", 450, 100, w=70)]
     rows = parse_sidebar(items, SIDEBAR_W)
     assert len(rows) == 1
     assert rows[0].chat_name == "某人"
     assert rows[0].preview == ""
+
+
+# --- OCR normalization helpers ----------------------------------------------
+
+
+def test_normalize_text_strips_edge_punct():
+    assert normalize_text("）下午 3:44") == "下午 3:44"
+    assert normalize_text("周鳳珠..") == "周鳳珠"
+
+
+def test_split_trailing_time_variants():
+    assert split_trailing_time("周鳳珠 下午450") == ("周鳳珠", "下午450")
+    assert split_trailing_time("媽媽 下午 8:30") == ("媽媽", "下午8:30")
+    assert split_trailing_time("下午4:50") == ("下午4:50", "")  # no name -> keep whole
+    assert split_trailing_time("先約1003下午") == ("先約1003下午", "")
+
+
+def test_looks_like_time_colonless_needs_prefix():
+    assert looks_like_time("下午450")
+    assert not looks_like_time("1003")  # bare numbers are NOT times
+    assert looks_like_time("12:30")
+    assert not looks_like_time("1230")
 
 
 def test_parse_notifications_basic():

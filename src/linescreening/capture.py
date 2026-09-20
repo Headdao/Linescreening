@@ -6,6 +6,8 @@ sends events; capturing pixels has no effect on LINE's read state.
 
 from __future__ import annotations
 
+import subprocess
+import time
 from pathlib import Path
 from typing import Any
 
@@ -27,14 +29,32 @@ def _quartz() -> Any:
     return Quartz
 
 
-def capture_line_window() -> Any:
-    """Capture ONLY the LINE window (other windows never enter the frame)."""
-    quartz = _quartz()
-    win = checks.find_line_window()
-    if win is None:
-        raise CaptureError(
-            "找不到畫面上的 LINE 視窗（需要 LINE 開啟且未最小化，且終端機具備螢幕錄製權限）"
-        )
+def _capture_window_by_id(quartz: Any, window_id: int) -> Any:
+    return quartz.CGWindowListCreateImage(
+        quartz.CGRectNull,
+        quartz.kCGWindowListOptionIncludingWindow,
+        window_id,
+        quartz.kCGWindowImageNominalResolution,
+    )
+
+
+def _frontmost_app() -> str | None:
+    try:
+        from AppKit import NSWorkspace
+
+        app = NSWorkspace.sharedWorkspace().frontmostApplication()
+        return app.localizedName()
+    except Exception:  # noqa: BLE001 — best effort
+        return None
+
+
+def _activate(app_name: str) -> None:
+    guards.os_assert_allowed("activate_app")
+    subprocess.run(["open", "-a", app_name], check=False, timeout=10)
+
+
+def _capture_line_candidate(quartz: Any, win: dict) -> Any:
+    """Validate + capture one window dict, or None if not capturable."""
     bounds = win.get("kCGWindowBounds", {})
     guards.capture_rect(
         "line_window",
@@ -43,14 +63,63 @@ def capture_line_window() -> Any:
         int(bounds.get("Width", 0)),
         int(bounds.get("Height", 0)),
     )
-    img = quartz.CGWindowListCreateImage(
-        quartz.CGRectNull,
-        quartz.kCGWindowListOptionIncludingWindow,
-        win["kCGWindowNumber"],
-        quartz.kCGWindowImageNominalResolution,
+    return _capture_window_by_id(quartz, win["kCGWindowNumber"])
+
+
+def _onscreen_line_windows(quartz: Any) -> list[dict]:
+    """Currently visible layer-0 LINE windows, widest first (main window
+    with the chat-list sidebar is the widest)."""
+    infos = quartz.CGWindowListCopyWindowInfo(
+        quartz.kCGWindowListOptionOnScreenOnly | quartz.kCGWindowListExcludeDesktopElements,
+        quartz.kCGNullWindowID,
     )
-    if img is None:
+    wins = []
+    for info in infos or []:
+        if (info.get("kCGWindowOwnerName") or "") != "LINE":
+            continue
+        if info.get("kCGWindowLayer", 0) != 0:
+            continue
+        b = info.get("kCGWindowBounds") or {}
+        if b.get("Width", 0) >= 300 and b.get("Height", 0) >= 300:
+            wins.append(dict(info))
+    wins.sort(key=lambda w: -(w["kCGWindowBounds"].get("Width", 0)))
+    return wins
+
+
+def capture_line_window(activate_if_needed: bool = True) -> Any:  # noqa: FBT001, FBT002
+    """Capture ONLY the LINE main window (other windows never enter the frame).
+
+    LINE often lives on another Space where its buffer is not capturable —
+    in that case briefly activate LINE (switching Space), re-scan the now
+    visible windows, capture the widest (main window with sidebar), and put
+    the previous app back in front. Activation never sends input into LINE,
+    so it cannot mark anything as read."""
+    quartz = _quartz()
+
+    win = checks.find_line_window()
+    if win is not None:
+        img = _capture_line_candidate(quartz, win)
+        if img is not None:
+            return img
+
+    if not activate_if_needed:
         raise CaptureError("擷取 LINE 視窗失敗（可能沒有螢幕錄製權限）")
+
+    previous = _frontmost_app()
+    _activate("LINE")
+    img = None
+    for _ in range(12):  # wait up to ~1.8s for the Space switch
+        for win in _onscreen_line_windows(quartz):
+            img = _capture_line_candidate(quartz, win)
+            if img is not None:
+                break
+        if img is not None:
+            break
+        time.sleep(0.15)
+    if previous and previous != "LINE":
+        _activate(previous)
+    if img is None:
+        raise CaptureError("擷取 LINE 視窗失敗（無法聚焦 LINE；請確認它在某個桌面上未最小化）")
     return img
 
 

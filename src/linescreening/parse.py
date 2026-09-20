@@ -38,22 +38,44 @@ class NotificationItem:
 # Shared helpers
 # ---------------------------------------------------------------------------
 
-_TIME_RE = re.compile(
-    r"^(剛剛|剛才|上午|下午|晚上|中午)?\s*\d{1,2}[:：]\d{2}$"
-    r"|^\d{1,2}/\d{1,2}$"
-    r"|^\d{1,2}月\d{1,2}日?$"
-    r"|^(昨天|今天|週[一二三四五六日天]|星期[一二三四五六日天])$"
-    r"^(剛剰)?",
-)
 _NUM_RE = re.compile(r"^\d{1,3}$")
+# OCR often glues stray edge punctuation onto clean text
+_EDGE_PUNCT = "）)」』】］>》..,,、;；-—_·"
+_TRAILING_TIME = re.compile(r"\s*((上午|下午|晚上|中午|凌晨)?\s*\d{1,2}\s*[:：]?\s*\d{2})$")
+
+
+def normalize_text(text: str) -> str:
+    """Strip OCR edge punctuation so regex checks see the real content."""
+    t = text.strip()
+    while t and t[0] in _EDGE_PUNCT:
+        t = t[1:].lstrip()
+    while t and t[-1] in _EDGE_PUNCT:
+        t = t[:-1].rstrip()
+    return t
+
+
+def split_trailing_time(name_text: str) -> tuple[str, str]:
+    """OCR sometimes merges '名字 時間' into one token — pull the trailing
+    time (colon optional: '下午450' == 下午4:50) out of a name."""
+    m = _TRAILING_TIME.search(name_text.strip())
+    if not m or not m.group(2):
+        return name_text, ""
+    time_part = m.group(1).replace(" ", "")
+    rest = name_text[: m.start()].strip()
+    if not rest:
+        return name_text, ""
+    return rest, time_part
 
 
 def looks_like_time(text: str) -> bool:
-    t = text.strip()
+    t = normalize_text(text)
     if not t or len(t) > 10:
         return False
     return bool(
-        re.fullmatch(r"(上午|下午|晚上|中午|凌晨)?\s*\d{1,2}[:：]\d{2}", t)
+        # with a 上午/下午-style prefix the colon may be OCR-dropped (下午450)
+        re.fullmatch(r"(上午|下午|晚上|中午|凌晨)\s*\d{1,2}\s*[:：]?\s*\d{2}", t)
+        # without the prefix a colon is required (else '1003' looks like a time)
+        or re.fullmatch(r"\d{1,2}\s*[:：]\s*\d{2}", t)
         or re.fullmatch(r"\d{1,2}/\d{1,2}", t)
         or re.fullmatch(r"\d{1,2}月\d{1,2}日?", t)
         or re.fullmatch(r"昨天|今天|現在|剛剛", t)
@@ -140,81 +162,163 @@ def cluster_lines(items: list[OcrText], y_tolerance: float | None = None) -> lis
 # ---------------------------------------------------------------------------
 
 
+def _badge_value(text: str) -> int | None:
+    """'3' -> 3, '999+' -> 999, else None."""
+    m = re.fullmatch(r"(\d{1,3})\+?", text.strip())
+    return int(m.group(1)) if m else None
+
+
+def _name_column_x(items: list[OcrText]) -> float | None:
+    """The chat-name/preview column anchors at a consistent left x. Find it
+    as the widest-aligned bucket of NON-time, NON-badge tokens (a long
+    timestamp must not steal the anchor)."""
+    candidates = [t for t in items if not looks_like_time(t.text) and _badge_value(t.text) is None]
+    if not candidates:
+        return None
+    buckets: dict[int, float] = {}
+    for t in candidates:
+        key = round(t.x / 10) * 10
+        buckets[key] = buckets.get(key, 0.0) + t.w
+    best = max(buckets, key=lambda k: buckets[k])
+    return float(best)
+
+
+_SIDEBAR_NOISE = re.compile(
+    r"^(AD|廣告)$|LINE TODAY|VOOM|即時戰報|廣告|贊助|搜尋聊天", re.IGNORECASE
+)
+
+
+def _merge_orphan_time_lines(lines: list[Line]) -> list[Line]:
+    """When OCR misses a chat NAME but still reads its timestamp, the time
+    token forms an orphan line. Merge such lines into the nearest content
+    line below/above (within ~1.5 rows) so the row keeps its timestamp."""
+    out: list[Line] = []
+    for line in lines:
+        time_only = bool(line.tokens) and all(looks_like_time(t.text) for t in line.tokens)
+        if not time_only:
+            out.append(line)
+            continue
+        tok0 = line.tokens[0]
+        best_idx, best_dist = None, 1e9
+        for idx, other in enumerate(out):
+            dist = abs(tok0.cy - (other.y + other.h / 2))
+            if dist < best_dist and dist < max(34.0, other.h * 2.0):
+                best_idx, best_dist = idx, dist
+        if best_idx is not None:
+            merged = out[best_idx]
+            out[best_idx] = Line(
+                y=min(merged.y, line.y),
+                h=max(merged.h, line.h),
+                tokens=sorted(merged.tokens + line.tokens, key=lambda t: t.x),
+            )
+        # else: stray time far from any row — drop it
+    return out
+
+
 def parse_sidebar(
     items: list[OcrText],
     img_width: float,
     cfg: dict | None = None,
 ) -> list[SidebarRow]:
-    """OCR observations from the sidebar crop -> one SidebarRow per chat."""
+    """OCR observations (full LINE window, top-inset cropped) -> rows.
+
+    Real LINE Mac layout (calibrated 2026-09): avatar column on the left
+    (unread badge sits ON the avatar, e.g. '999+'), name+time line, and a
+    preview line that may WRAP to a second line; VOOM/ad rows at the bottom.
+    """
     cfg = cfg or {}
     max_rows = int(cfg.get("row_max_count", 40))
-    rows: list[SidebarRow] = []
 
-    lines = cluster_lines(items)
-    if not lines:
+    name_x = _name_column_x(items)
+    if name_x is None:
         return []
 
-    # Unread badges: small numeric tokens near the right edge, own cluster
-    badge_by_line_idx: dict[int, int] = {}
-    content_lines: list[Line] = []
-    right_edge = img_width * 0.995
-    for line in lines:
-        numeric = [t for t in line.tokens if looks_like_count(t.text)]
-        others = [t for t in line.tokens if t not in numeric]
-        if numeric and not others and numeric[0].x > img_width * 0.80:
-            badge_by_line_idx[len(content_lines)] = int(numeric[0].text)
-            continue  # badge line consumed
-        if numeric and others:
-            # e.g. "3" sitting on the time line right side
-            for n in numeric:
-                if n.x > img_width * 0.80 and n.x + n.w >= right_edge - 40:
-                    badge_by_line_idx[len(content_lines)] = int(n.text)
-                    line = Line(y=line.y, h=line.h, tokens=[t for t in others])
-        content_lines.append(line)
+    # Split tokens: avatar/badge zone (left of the name column), name column,
+    # right zone (timestamps). The sidebar's right boundary sits just past
+    # the right-aligned timestamp column — anything beyond belongs to the
+    # chat pane and is dropped.
+    badge_tokens = [t for t in items if t.x < name_x - 20 and _badge_value(t.text)]
+    time_rights = [t.x + t.w for t in items if looks_like_time(t.text)]
+    boundary = (max(time_rights) + 25) if time_rights else img_width * 0.98
+    column = [t for t in items if t.x >= name_x - 20 and t.x + t.w <= boundary]
+    lines = cluster_lines(column)
+    if not lines:
+        return []
+    lines = _merge_orphan_time_lines(lines)
 
-    # Walk lines in pairs: (name+time line) followed by preview line.
+    # attach badge tokens to the line whose y-span they overlap
+    unread_by_line: dict[int, int] = {}
+    for badge in badge_tokens:
+        best_idx, best_dist = None, 1e9
+        for idx, line in enumerate(lines):
+            center = line.y + line.h / 2
+            dist = abs(badge.cy - center)
+            if dist < best_dist and dist < max(34.0, line.h * 1.5):
+                best_idx, best_dist = idx, dist
+        if best_idx is not None:
+            unread_by_line.setdefault(best_idx, _badge_value(badge.text) or 0)
+
+    rows: list[SidebarRow] = []
     i = 0
-    while i < len(content_lines) and len(rows) < max_rows:
-        line = content_lines[i]
+    while i < len(lines) and len(rows) < max_rows:
+        line = lines[i]
         time_toks = [t for t in line.tokens if looks_like_time(t.text)]
         rest = [t for t in line.tokens if t not in time_toks]
         if not rest:
             i += 1
             continue
         name = join_tokens(rest)
-        time_text = " ".join(t.text for t in time_toks)
-        unread = badge_by_line_idx.get(i)
+        time_text = " ".join(normalize_text(t.text) for t in time_toks)
+        # OCR may have glued '名字 時間' into one token — split it back out
+        name, trailing_time = split_trailing_time(name)
+        if trailing_time and not time_text:
+            time_text = trailing_time
+        unread = unread_by_line.get(i)
 
-        preview = ""
-        nxt = content_lines[i + 1] if i + 1 < len(content_lines) else None
-        if nxt is not None and _is_preview_line(line, nxt):
+        preview_parts: list[str] = []
+        consumed = 1
+        # A preview line follows the name; WRAPPED continuations sit ~16-18px
+        # below the previous line's top, while the next chat's row starts
+        # ~28px+ lower — the top-pitch test keeps folds inside one row even
+        # when OCR misses the next row's timestamp.
+        j = i + 1
+        first = True
+        while j < len(lines):
+            window = 2.0 if first else 1.1
+            if not _is_preview_line(lines[j - 1], lines[j], window=window):
+                break
+            if not first:
+                pitch = lines[j].y - lines[j - 1].y
+                if pitch > max(24.0, lines[j - 1].h * 1.7):
+                    break
+            nxt = lines[j]
             nxt_time = [t for t in nxt.tokens if looks_like_time(t.text)]
-            preview = join_tokens([t for t in nxt.tokens if t not in nxt_time])
-            # badge often sits on the preview line (right edge) — claim it too
-            unread = unread or badge_by_line_idx.get(i + 1)
-            i += 2
-        else:
-            i += 1
+            preview_parts.append(join_tokens([t for t in nxt.tokens if t not in nxt_time]))
+            unread = unread or unread_by_line.get(j)
+            consumed += 1
+            j += 1
+            first = False
 
-        if name:
-            nxt_texts = tuple(t.text for t in nxt.tokens) if (preview and nxt is not None) else ()
-            rows.append(
-                SidebarRow(
-                    chat_name=name,
-                    preview=preview,
-                    time_text=time_text,
-                    unread=unread,
-                    raw_texts=tuple(t.text for t in line.tokens) + nxt_texts,
-                )
+        i += consumed
+        if not name or _SIDEBAR_NOISE.search(name) or _SIDEBAR_NOISE.search("".join(preview_parts)):
+            continue
+        rows.append(
+            SidebarRow(
+                chat_name=name,
+                preview="".join(preview_parts),
+                time_text=time_text,
+                unread=unread,
+                raw_texts=tuple(t.text for t in line.tokens),
             )
+        )
     return rows
 
 
-def _is_preview_line(name_line: Line, candidate: Line) -> bool:
+def _is_preview_line(name_line: Line, candidate: Line, window: float = 2.0) -> bool:
     """A preview sits directly below the name line, at a similar left edge,
     and is not itself a name+time line (no right-aligned timestamp)."""
     dy = candidate.y - (name_line.y + name_line.h)
-    if not -2 <= dy <= name_line.h * 2.0:
+    if not -name_line.h * 0.5 <= dy <= name_line.h * window:
         return False
     if candidate.left > name_line.left + 40:
         return False
@@ -299,7 +403,7 @@ def _looks_like_new_title(prev: NotificationItem, candidate: NotificationItem) -
 
 def _nc_is_body(title_line: Line, candidate: Line) -> bool:
     dy = candidate.y - (title_line.y + title_line.h)
-    if not -2 <= dy <= title_line.h * 1.6:
+    if not -title_line.h * 0.5 <= dy <= title_line.h * 1.6:
         return False
     if candidate.left > title_line.left + 30:
         return False

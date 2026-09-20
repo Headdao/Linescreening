@@ -42,7 +42,7 @@ def recognize_image(
     from Foundation import NSURL
     from Vision import VNImageRequestHandler, VNRecognizeTextRequest
 
-    languages = languages or ["zh-Hant", "zh-Hans", "ja-JP", "en-US"]
+    languages = languages or ["zh-Hant", "zh-Hans", "en-US"]
     url = NSURL.fileURLWithPath_(str(Path(path).expanduser()))
     handler = VNImageRequestHandler.alloc().initWithURL_options_(url, None)
     request = VNRecognizeTextRequest.alloc().init()
@@ -65,7 +65,7 @@ def recognize_cgimage(
     """OCR a live-captured CGImage -> observations (same contract)."""
     from Vision import VNImageRequestHandler, VNRecognizeTextRequest
 
-    languages = languages or ["zh-Hant", "zh-Hans", "ja-JP", "en-US"]
+    languages = languages or ["zh-Hant", "zh-Hans", "en-US"]
     handler = VNImageRequestHandler.alloc().initWithCGImage_options_(cgimage, None)
     request = VNRecognizeTextRequest.alloc().init()
     request.setRecognitionLanguages_(languages)

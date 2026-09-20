@@ -45,7 +45,11 @@ def _real_sidebar(cfg: Config) -> list[SidebarRow]:
 
     img = capture.capture_sidebar(cfg)
     width = float(image_size(img)[0])
-    items = recognize_cgimage(img, languages=cfg.ocr["recognition_languages"])
+    items = recognize_cgimage(
+        img,
+        languages=cfg.ocr["recognition_languages"],
+        min_confidence=float(cfg.ocr["min_confidence"]),
+    )
     return parse_sidebar(items, width, cfg.sidebar)
 
 

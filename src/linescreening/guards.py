@@ -100,6 +100,17 @@ def ax_assert_allowed(action: str, target_app: str | None = None) -> None:
         )
 
 
+# 2b. OS-level actions (subprocess `open -a …`, list-argv; no AppleScript)
+# Activating LINE focuses its window (switching Space if needed) so its
+# pixels can be captured; it NEVER sends input into LINE.
+ALLOWED_OS_ACTIONS: Final[frozenset[str]] = frozenset({"activate_app"})
+
+
+def os_assert_allowed(action: str) -> None:
+    if action not in ALLOWED_OS_ACTIONS:
+        raise GuardError(f"OS action {action!r} is not whitelisted")
+
+
 # ---------------------------------------------------------------------------
 # 3. Static osascript payloads (constants — never built from runtime data)
 # ---------------------------------------------------------------------------

@@ -52,36 +52,44 @@ def check_line_running() -> CheckResult:
 
 
 def find_line_window() -> dict[str, Any] | None:
-    """Return the on-screen LINE window dict (Quartz), or None.
+    """Return the LINE main window dict (Quartz), or None.
 
-    NOTE: kCGWindowOwnerName may be unavailable without Screen Recording
-    permission on recent macOS — in that case windows appear with empty
-    owner names and we cannot identify LINE.
+    Lists ALL windows (not just the active Space) — LINE is often parked on
+    another desktop, and CGWindowListCreateImage can still capture a window
+    by ID across Spaces. Picks the largest layer-0 LINE window, skipping the
+    33px toolbar strips and 1px helper windows LINE keeps around.
     """
     try:
         from Quartz import (
             CGWindowListCopyWindowInfo,
             kCGNullWindowID,
             kCGWindowListExcludeDesktopElements,
-            kCGWindowListOptionOnScreenOnly,
+            kCGWindowListOptionAll,
         )
     except ImportError:
         return None
 
     infos = CGWindowListCopyWindowInfo(
-        kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements,
+        kCGWindowListOptionAll | kCGWindowListExcludeDesktopElements,
         kCGNullWindowID,
     )
     if infos is None:
         return None
+    best: tuple[int, dict] | None = None
     for info in infos:
         owner = info.get("kCGWindowOwnerName") or ""
-        if owner == "LINE":
-            layer = info.get("kCGWindowLayer", 0)
-            bounds = info.get("kCGWindowBounds") or {}
-            if layer == 0 and bounds.get("Width", 0) > 200:
-                return dict(info)
-    return None
+        if owner != "LINE":
+            continue
+        if info.get("kCGWindowLayer", 0) != 0:
+            continue
+        bounds = info.get("kCGWindowBounds") or {}
+        w, h = bounds.get("Width", 0), bounds.get("Height", 0)
+        if w < 300 or h < 300:  # skip toolbar strips / helpers / panels
+            continue
+        area = int(w) * int(h)
+        if best is None or area > best[0]:
+            best = (area, dict(info))
+    return best[1] if best else None
 
 
 def check_line_window() -> CheckResult:
