@@ -15,6 +15,7 @@ Rules enforced here (and by tests/test_guards.py in CI):
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Final
 
@@ -149,3 +150,38 @@ OSASCRIPT_CLICK_CLOCK: Final[str] = (
 )
 
 OSASCRIPT_PRESS_ESC: Final[str] = 'tell application "System Events" to key code 53'
+
+
+# ---------------------------------------------------------------------------
+# 3b. User notification (READ_NOW alerts from the auto watcher)
+# ---------------------------------------------------------------------------
+# The only osascript whose payload carries runtime text. Safety comes from
+# notify_sanitize(): everything outside a strict CJK/ASCII allowlist is
+# stripped, so no quote, backslash or newline can break out of the AppleScript
+# string literal. Rule 3 ("static payloads") is intentionally narrowed to
+# "static template + sanitized fields", enforced by tests.
+_NOTIFY_DISALLOWED = re.compile(r"[^0-9A-Za-z \-\u4e00-\u9fff\u3000-\u303f\uff00-\uffef]")
+
+NOTIFY_TITLE_MAX: Final[int] = 40
+NOTIFY_BODY_MAX: Final[int] = 120
+
+
+def notify_sanitize(text: str, cap: int = NOTIFY_BODY_MAX) -> str:
+    t = _NOTIFY_DISALLOWED.sub("", str(text or ""))
+    t = " ".join(t.split())  # collapse whitespace / kill newlines
+    return t[:cap].strip()
+
+
+def send_notification(title: str, body: str) -> bool:
+    """Fire a macOS notification banner. Returns True if osascript succeeded."""
+    import subprocess
+
+    t = notify_sanitize(title, NOTIFY_TITLE_MAX) or "Linescreening"
+    b = notify_sanitize(body, NOTIFY_BODY_MAX)
+    if not b:
+        return False
+    script = f'display notification "{b}" with title "{t}"'
+    proc = subprocess.run(
+        ["osascript", "-e", script], capture_output=True, timeout=10, check=False
+    )
+    return proc.returncode == 0

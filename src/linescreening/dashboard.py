@@ -93,6 +93,7 @@ _PAGE = """<!doctype html>
 <header>
   <h1>LINE 未讀分級</h1>
   <span class="meta" id="status">尚未執行</span>
+  <span class="meta" id="watch" style="cursor:pointer" title="點擊開關自動監看"></span>
   <label><input type="checkbox" id="offline"> 離線（不外傳）</label>
   <button id="run">重新擷取判讀</button>
 </header>
@@ -157,6 +158,27 @@ function render(data) {
 function unreadBadge(c) {
   return c.unread != null ? `<span class="unread">${c.unread} 未讀</span>` : "";
 }
+let watchLastRuns = -1;
+async function pollWatch() {
+  try {
+    const w = await (await fetch("/api/watch/status")).json();
+    const el = document.getElementById("watch");
+    el.textContent = w.enabled
+      ? `🟢 自動監看 · 每 ${Math.round(w.interval_s / 60)} 分鐘${w.last_error ? " · ⚠" : ""}`
+      : "⏸ 自動監看已暫停";
+    if (watchLastRuns >= 0 && w.full_runs > watchLastRuns) { run(); }
+    watchLastRuns = w.full_runs;
+  } catch (e) { /* dashboard shutting down */ }
+}
+pollWatch(); setInterval(pollWatch, 20000);
+document.getElementById("watch").addEventListener("click", async () => {
+  const w = await (await fetch("/api/watch/status")).json();
+  await fetch("/api/watch/toggle", {
+    method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({enabled: !w.enabled}),
+  });
+  pollWatch();
+});
 function esc(s) {
   const MAP = {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"};
   return String(s).replace(/[&<>"']/g, m => MAP[m]);
@@ -334,6 +356,20 @@ def _setup_status(cfg) -> dict:  # type: ignore[no-untyped-def]
     return {"done": critical_ok, "steps": steps}
 
 
+def _get_watcher():
+    """Lazily create the shared watcher (thread is started only by
+    run_dashboard — tests that call make_server stay capture-free)."""
+    global _WATCHER
+    if _WATCHER is None:
+        from linescreening.watch import Watcher
+
+        _WATCHER = Watcher(load_config())
+    return _WATCHER
+
+
+_WATCHER = None
+
+
 def make_server(port: int = 8765) -> ThreadingHTTPServer:  # noqa: FBT001, FBT002
     cfg = load_config()
 
@@ -367,6 +403,8 @@ def make_server(port: int = 8765) -> ThreadingHTTPServer:  # noqa: FBT001, FBT00
                 self._json(_history(cfg))
             elif route == "/api/setup/status":
                 self._json(_setup_status(cfg))
+            elif route == "/api/watch/status":
+                self._json(_get_watcher().status_payload())
             else:
                 self.send_response(404)
                 self.end_headers()
@@ -380,7 +418,11 @@ def make_server(port: int = 8765) -> ThreadingHTTPServer:  # noqa: FBT001, FBT00
                 self._json({"ok": False, "error": "invalid JSON"}, status=400)
                 return
 
-            if route == "/api/setup/key":
+            if route == "/api/watch/toggle":
+                watcher = _get_watcher()
+                watcher.enabled = bool(data.get("enabled"))
+                self._json(watcher.status_payload())
+            elif route == "/api/setup/key":
                 from linescreening import keychain
                 from linescreening.checks import check_jev_api
 
@@ -465,6 +507,13 @@ def run_dashboard(port: int = 8765, open_browser: bool = True) -> int:  # noqa: 
         return 0
     console.print(f"[bold green]linescreening 儀表板[/bold green] → {url}")
     console.print("[dim]僅本機可連線；Ctrl+C 停止。[/dim]")
+    watcher = _get_watcher()
+    if watcher.enabled:
+        watcher.start()
+        console.print(
+            f"[dim]自動監看開啟：每 {watcher.interval_s:.0f}s 掃描側欄，"
+            "有變化才完整判讀；READ_NOW 才跳系統通知。[/dim]"
+        )
     if open_browser:
         import subprocess
 

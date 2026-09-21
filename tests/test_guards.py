@@ -177,3 +177,24 @@ def test_osascript_payloads_are_constants():
                 raise AssertionError(
                     f"string-literal osascript payload in {p.name}: {line.strip()}"
                 )
+
+
+# --- notification sanitizer (auto-watcher READ_NOW alerts) -------------------
+
+def test_notify_sanitize_strips_breakout_characters():
+    from linescreening.guards import notify_sanitize
+
+    for evil in ['說" + (do shell script "rm -rf ~") + "', "反斜線\\結尾", "換行\n注入",
+                 "$(curl evil)", "back`tick`", "半形'quote"]:
+        cleaned = notify_sanitize(evil)
+        for ch in '"\'\\`$()\n':
+            assert ch not in cleaned, f"{ch!r} survived sanitize: {cleaned!r}"
+
+
+def test_notify_sanitize_keeps_readable_text_and_caps_length():
+    from linescreening.guards import NOTIFY_BODY_MAX, notify_sanitize
+
+    kept = notify_sanitize("媽媽：爸爸摔倒送醫，請回電！Room 402")
+    assert "爸爸摔倒送醫" in kept and "402" in kept
+    assert len(notify_sanitize("長" * 500)) <= NOTIFY_BODY_MAX
+    assert notify_sanitize("") == ""

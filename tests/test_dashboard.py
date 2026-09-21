@@ -131,3 +131,29 @@ def test_server_binds_loopback_only():
         assert srv.server_address[0] == "127.0.0.1"
     finally:
         srv.server_close()
+
+
+def test_watch_status_and_toggle(server):
+    import linescreening.dashboard as dash
+
+    dash._WATCHER = None  # isolate from other tests
+    try:
+        status, body = _get(server + "/api/watch/status")
+        assert status == 200
+        payload = json.loads(body)
+        assert payload["enabled"] is True
+        assert payload["cycles"] == 0  # thread never started in tests
+
+        req = urllib.request.Request(  # noqa: S310 — 127.0.0.1 test server
+            server + "/api/watch/toggle",
+            data=json.dumps({"enabled": False}).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:  # noqa: S310
+            assert json.loads(resp.read())["enabled"] is False
+        # page carries the watch pill
+        status, body = _get(server + "/")
+        assert 'id="watch"' in body.decode("utf-8")
+    finally:
+        dash._WATCHER = None
