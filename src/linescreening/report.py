@@ -37,13 +37,13 @@ SidebarProvider = Callable[[Config], list[SidebarRow]]
 NcProvider = Callable[[Config], list[NotificationItem]]
 
 
-def _real_sidebar(cfg: Config) -> list[SidebarRow]:
+def _real_sidebar(cfg: Config, activate: bool = True) -> list[SidebarRow]:  # noqa: FBT001, FBT002
     from linescreening import capture
     from linescreening.cgimage import image_size
     from linescreening.ocr import recognize_cgimage
     from linescreening.parse import parse_sidebar
 
-    img = capture.capture_sidebar(cfg)
+    img = capture.capture_sidebar(cfg, activate=activate)
     width = float(image_size(img)[0])
     items = recognize_cgimage(
         img,
@@ -70,10 +70,16 @@ def collect_triage(
     cfg: Config | None = None,
     sidebar_provider: SidebarProvider = _real_sidebar,
     nc_provider: NcProvider = _real_nc,
+    silent: bool = False,  # noqa: FBT001, FBT002
 ) -> dict:
     """Run the full pipeline and return the JSON payload (shared by the
-    terminal report, --json output, and the local dashboard)."""
+    terminal report, --json output, and the local dashboard).
+
+    silent=True (watcher): never activate LINE to capture — skip rather
+    than steal focus."""
     cfg = cfg or load_config()
+    if silent and sidebar_provider is _real_sidebar:
+        sidebar_provider = lambda c: _real_sidebar(c, activate=False)  # noqa: E731
     store = Store(cfg.db_path)
     store.purge_older_than(int(cfg.data["retention_days"]))
 

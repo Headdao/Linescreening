@@ -10,10 +10,12 @@ surface a macOS notification — lower tiers stay silent on purpose.
 from __future__ import annotations
 
 import logging
+import re
 import threading
 from dataclasses import dataclass, field
 
 from linescreening import guards
+from linescreening.capture import LineNotVisibleError
 
 log = logging.getLogger(__name__)
 
@@ -27,6 +29,7 @@ class WatchStatus:
     running: bool = False
     cycles: int = 0
     full_runs: int = 0
+    line_state: str = "unknown"  # visible | hidden (covered/minimized)
     last_scan_at: str | None = None
     last_change_at: str | None = None
     last_error: str | None = None
@@ -39,13 +42,22 @@ class WatchResult:
     error: str | None = None
 
 
+def _canon(text: str) -> str:
+    """Canonical form for change detection: keep only word characters
+    (CJK counts), drop spaces/punctuation — OCR renders the same line with
+    slightly different spacing and punctuation every pass, and a naive
+    compare would see phantom changes on every cycle."""
+    return re.sub(r"[\W_]+", "", str(text or ""), flags=re.UNICODE)
+
+
 def sidebar_signature(rows: list) -> str:  # noqa: ANN001 — SidebarRow, avoid import cycle
-    """Stable digest of the sidebar state — any new message, read or badge
-    change alters it; identical sidebars across cycles hash equal."""
+    """Stable digest of the sidebar state. Deliberately excludes time_text
+    (relative labels like 剛剛/5分鐘前 drift on their own); a new message or
+    badge change still alters name/unread/preview."""
     parts = sorted(
-        (r.chat_name, str(r.unread), r.preview, r.time_text) for r in rows
+        (_canon(r.chat_name), str(r.unread), _canon(r.preview)[:16]) for r in rows
     )
-    return "|".join("\x00".join(p) for p in parts)
+    return "|".join(":".join(p) for p in parts)
 
 
 class Watcher:
@@ -57,23 +69,26 @@ class Watcher:
         watch = cfg.raw.get("watch", {})
         self.interval_s = max(30.0, float(watch.get("interval_s", 120.0)))
         self.enabled = bool(watch.get("enabled", True))
+        self.heartbeat_s = max(0.0, float(watch.get("heartbeat_s", 900.0)))
         self.notify = notify or guards.send_notification
         self._notified: set[tuple[str, str]] = set()
         self._last_sig: str | None = None
+        self._hidden_streak = 0
+        self.last_payload: dict | None = None  # served to the UI without re-running
         self.status = WatchStatus(interval_s=self.interval_s, enabled=self.enabled)
         self._lock = threading.Lock()
 
-    # -- one poll step (sidebar-only; cheap, invisible) ----------------------
+    # -- one poll step (sidebar-only; cheap, invisible, NEVER activates) ----
     def _poll_sidebar(self) -> list:
         from linescreening.report import _real_sidebar
 
-        return _real_sidebar(self.cfg)
+        return _real_sidebar(self.cfg, activate=False)
 
     # -- full triage (NC dump + Jev) ----------------------------------------
-    def _full_triage(self) -> dict:
+    def _full_triage(self, silent: bool = True) -> dict:
         from linescreening.report import collect_triage
 
-        return collect_triage(cfg=self.cfg)
+        return collect_triage(cfg=self.cfg, silent=silent)
 
     def step(self) -> WatchResult:
         """One watcher cycle. Never raises — errors land in status/result."""
@@ -81,24 +96,28 @@ class Watcher:
             self.status.running = True
         result = WatchResult()
         try:
-            rows = self._poll_sidebar()
-            sig = sidebar_signature(rows)
+            try:
+                rows = self._poll_sidebar()
+                self._hidden_streak = 0
+            except LineNotVisibleError:
+                # LINE covered/minimized: skip silently (NO focus steal).
+                # After heartbeat_s of blindness do one deep activating scan
+                # so data doesn't go stale forever.
+                with self._lock:
+                    self.status.line_state = "hidden"
+                if self.heartbeat_s and self._hidden_streak * self.interval_s >= self.heartbeat_s:
+                    self._hidden_streak = 0
+                    return self._run_full(silent=False)
+                self._hidden_streak += 1
+                return result
             with self._lock:
+                self.status.line_state = "visible"
                 self.status.cycles += 1
                 self.status.last_scan_at = _now_iso()
+            sig = sidebar_signature(rows)
             if sig == self._last_sig:
                 return result
-            self._last_sig = sig
-            payload = self._full_triage()
-            with self._lock:
-                self.status.full_runs += 1
-                self.status.last_change_at = _now_iso()
-                self.status.last_error = None
-            result.changed = True
-            for chat in payload.get("chats", []):
-                if chat.get("verdict") == "READ_NOW":
-                    result.read_now.append(chat)
-                    self._notify_read_now(chat)
+            return self._run_full(sig=sig)
         except Exception as exc:  # noqa: BLE001 — watcher must never die
             result.error = f"{exc.__class__.__name__}: {exc}"[:200]
             with self._lock:
@@ -107,6 +126,23 @@ class Watcher:
         finally:
             with self._lock:
                 self.status.running = False
+        return result
+
+    def _run_full(self, sig: str | None = None, silent: bool = True) -> WatchResult:
+        result = WatchResult(changed=True)
+        payload = self._full_triage(silent=silent)
+        self.last_payload = payload
+        with self._lock:
+            self.status.full_runs += 1
+            self.status.last_change_at = _now_iso()
+            self.status.last_error = None
+        sidebar_ok = not any("側欄" in w for w in payload.get("warnings", []))
+        if sidebar_ok and sig is not None:
+            self._last_sig = sig
+        for chat in payload.get("chats", []):
+            if chat.get("verdict") == "READ_NOW":
+                result.read_now.append(chat)
+                self._notify_read_now(chat)
         return result
 
     def _notify_read_now(self, chat: dict) -> None:
@@ -145,6 +181,7 @@ class Watcher:
                 "running": st.running,
                 "cycles": st.cycles,
                 "full_runs": st.full_runs,
+                "line_state": st.line_state,
                 "last_scan_at": st.last_scan_at,
                 "last_change_at": st.last_change_at,
                 "last_error": st.last_error,

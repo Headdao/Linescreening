@@ -157,3 +157,21 @@ def test_watch_status_and_toggle(server):
         assert 'id="watch"' in body.decode("utf-8")
     finally:
         dash._WATCHER = None
+
+
+def test_watch_last_404_then_cached(server):
+    import linescreening.dashboard as dash
+
+    dash._WATCHER = None
+    try:
+        status, _ = _get(server + "/api/watch/last")
+        assert status == 404
+        dash._get_watcher().last_payload = {
+            "chats": [], "ran_at": "2026-09-21T00:00:00+00:00",
+            "mode": "live", "warnings": [], "notices": [],
+        }
+        status, body = _get(server + "/api/watch/last")
+        assert status == 200
+        assert json.loads(body)["mode"] == "live"
+    finally:
+        dash._WATCHER = None

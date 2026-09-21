@@ -53,9 +53,13 @@ watcher:                          # banner mode only (optional)
   banner_region_fraction_w: 0.25  # right quarter of screen width
   banner_region_px_h: 260         # below the menu bar
 
-# Auto watcher (dashboard 常駐時): silently polls the sidebar; a CHANGE
-# (new message / badge move) triggers full triage + NC dump. READ_NOW
-# verdicts fire a macOS notification — lower tiers stay silent.
+# Auto watcher (dashboard 常駐時): silently region-captures the LINE window
+# ONLY while it is visibly on screen (no focus steal, no flash). When LINE
+# is covered/minimized the poll skips silently; every heartbeat_s of
+# blindness one deep activating scan runs (brief flash) so data stays fresh.
+# A CHANGE (new message / badge move) triggers full triage + NC dump.
+# READ_NOW verdicts fire a macOS notification — lower tiers stay silent.
 watch:
   enabled: true
   interval_s: 120                 # sidebar poll period (min 30)
+  heartbeat_s: 900                # deep scan while LINE hidden (0 = never)

@@ -91,6 +91,83 @@ def _onscreen_line_windows(quartz: Any) -> list[dict]:
     return wins
 
 
+class LineNotVisibleError(CaptureError):
+    """LINE's window is hidden/minimized/covered — silent capture impossible."""
+
+
+def _rects_intersect(a: dict, b: dict, shrink: float = 2.0) -> bool:
+    """True if window bounds a and b overlap (small shrink to ignore shadow
+    fringe touching)."""
+
+    def box(d: dict) -> tuple[float, float, float, float]:
+        return (
+            float(d.get("X", 0)) + shrink,
+            float(d.get("Y", 0)) + shrink,
+            float(d.get("X", 0)) + float(d.get("Width", 0)) - shrink,
+            float(d.get("Y", 0)) + float(d.get("Height", 0)) - shrink,
+        )
+
+    ax0, ay0, ax1, ay1 = box(a)
+    bx0, by0, bx1, by1 = box(b)
+    return ax0 < bx1 and bx0 < ax1 and ay0 < by1 and by0 < ay1
+
+
+def classify_line_visibility(
+    infos: list[dict] | None,
+) -> tuple[str, dict | None]:
+    """Given an OnScreenOnly window list (z-order: frontmost first), decide
+    whether LINE's main window is cleanly visible. Returns one of
+    ("visible"|"occluded"|"hidden", main_window_info|None). Pure — unit-testable."""
+    ordered = list(infos or [])
+    main = None
+    for idx, info in enumerate(ordered):
+        if (info.get("kCGWindowOwnerName") or "") != "LINE":
+            continue
+        if (info.get("kCGWindowLayer") or 0) != 0:
+            continue
+        b = info.get("kCGWindowBounds", {})
+        if b.get("Width", 0) < 300 or b.get("Height", 0) < 300:
+            continue
+        main = info
+        for other in ordered[:idx]:  # windows in front of LINE
+            if (other.get("kCGWindowLayer") or 0) != 0:
+                continue  # menus/floating chrome float above everything
+            if _rects_intersect(b, other.get("kCGWindowBounds", {})):
+                return "occluded", main
+        return "visible", main
+    return "hidden", None
+
+
+def capture_line_window_silent() -> Any:
+    """Capture LINE's on-screen pixels WITHOUT any focus change: a plain
+    screen-region capture of the LINE window bounds. Only valid when the
+    window is cleanly visible (classify_line_visibility == "visible");
+    otherwise raises LineNotVisibleError — callers skip instead of flashing."""
+    quartz = _quartz()
+    infos = quartz.CGWindowListCopyWindowInfo(
+        quartz.kCGWindowListOptionOnScreenOnly | quartz.kCGWindowListExcludeDesktopElements,
+        quartz.kCGNullWindowID,
+    )
+    state, main = classify_line_visibility(infos)
+    if state != "visible" or main is None:
+        raise LineNotVisibleError(
+            "hidden" if state == "hidden" else "occluded"
+        )
+    b = main["kCGWindowBounds"]
+    x, y, w, h = int(b["X"]), int(b["Y"]), int(b["Width"]), int(b["Height"])
+    guards.capture_rect("line_window", x, y, w, h)
+    rect = quartz.CGRectMake(x, y, w, h)
+    img = quartz.CGWindowListCreateImage(
+        rect,
+        quartz.kCGWindowListOptionOnScreenOnly,
+        quartz.kCGNullWindowID,
+        quartz.kCGWindowImageNominalResolution,
+    )
+    if img is None:
+        raise CaptureError("擷取 LINE 視窗失敗（可能沒有螢幕錄製權限）")
+    return img
+
+
 def capture_line_window(activate_if_needed: bool = True) -> Any:  # noqa: FBT001, FBT002
     """Capture ONLY the LINE main window (other windows never enter the frame).
 
@@ -151,10 +228,16 @@ def crop_sidebar(img: Any, cfg: Config) -> Any:
     return cropped
 
 
-def capture_sidebar(cfg: Config | None = None) -> Any:
-    """One call: window capture + sidebar crop. Returns the CGImage."""
+def capture_sidebar(cfg: Config | None = None, activate: bool = True) -> Any:  # noqa: FBT001, FBT002
+    """One call: window capture + sidebar crop. Returns the CGImage.
+
+    activate=False is the watcher's silent mode: region-capture whatever is
+    visibly on screen at LINE's bounds — NEVER steal focus / switch Space.
+    Raises LineNotVisibleError when LINE is covered or hidden."""
     cfg = cfg or load_config()
-    return crop_sidebar(capture_line_window(), cfg)
+    if activate:
+        return crop_sidebar(capture_line_window(), cfg)
+    return crop_sidebar(capture_line_window_silent(), cfg)
 
 
 def capture_nc_panel() -> Any:

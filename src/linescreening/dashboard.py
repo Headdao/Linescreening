@@ -109,20 +109,23 @@ _PAGE = """<!doctype html>
 const ICON = {READ_NOW:"🔴", MAYBE:"🟡", READ_SOON:"🔵", CAN_SKIP:"⚪"};
 const ORDER = ["READ_NOW","MAYBE","READ_SOON","CAN_SKIP"];
 const LABEL = {READ_NOW:"值得讀（現在）", MAYBE:"不確定", READ_SOON:"可稍後讀", CAN_SKIP:"可略過"};
-async function run() {
+async function run(fromWatch) {
   const btn = document.getElementById("run");
   btn.disabled = true;
-  document.getElementById("status").textContent = "擷取中…（會短暫聚焦 LINE）";
+  if (!fromWatch) document.getElementById("status").textContent = "擷取中…（會短暫聚焦 LINE）";
   try {
-    const q = document.getElementById("offline").checked ? "?offline=1" : "";
-    const res = await fetch("/api/triage" + q);
+    // watch refresh reads the watcher's cached payload — no second capture
+    let res = await fetch(fromWatch ? "/api/watch/last" : "/api/triage" +
+      (document.getElementById("offline").checked ? "?offline=1" : ""));
+    if (fromWatch && res.status === 404) { btn.disabled = false; return; }
     const data = await res.json();
     render(data);
     document.getElementById("status").textContent =
       new Date(data.ran_at + "Z").toLocaleString("zh-TW") + " · " +
-      ({live:"Jev 判讀", mock:"mock", offline:"離線（未判讀）"}[data.mode] || data.mode);
+      ({live:"Jev 判讀", mock:"mock", offline:"離線（未判讀）"}[data.mode] || data.mode) +
+      (fromWatch ? " · 自動" : "");
   } catch (e) {
-    document.getElementById("status").textContent = "執行失敗：" + e;
+    if (!fromWatch) document.getElementById("status").textContent = "執行失敗：" + e;
   } finally { btn.disabled = false; }
 }
 function render(data) {
@@ -163,10 +166,13 @@ async function pollWatch() {
   try {
     const w = await (await fetch("/api/watch/status")).json();
     const el = document.getElementById("watch");
+    const state = w.line_state === "hidden"
+      ? " · LINE 被蓋住，靜默跳過" : "";
+    const err = w.last_error ? " · ⚠" : "";
     el.textContent = w.enabled
-      ? `🟢 自動監看 · 每 ${Math.round(w.interval_s / 60)} 分鐘${w.last_error ? " · ⚠" : ""}`
+      ? `🟢 自動監看 · 每 ${Math.round(w.interval_s / 60)} 分鐘${state}${err}`
       : "⏸ 自動監看已暫停";
-    if (watchLastRuns >= 0 && w.full_runs > watchLastRuns) { run(); }
+    if (watchLastRuns >= 0 && w.full_runs > watchLastRuns) { run(true); }
     watchLastRuns = w.full_runs;
   } catch (e) { /* dashboard shutting down */ }
 }
@@ -405,6 +411,12 @@ def make_server(port: int = 8765) -> ThreadingHTTPServer:  # noqa: FBT001, FBT00
                 self._json(_setup_status(cfg))
             elif route == "/api/watch/status":
                 self._json(_get_watcher().status_payload())
+            elif route == "/api/watch/last":
+                payload = _get_watcher().last_payload
+                if payload is None:
+                    self._json({"stale": True}, status=404)
+                else:
+                    self._json(payload)
             else:
                 self.send_response(404)
                 self.end_headers()

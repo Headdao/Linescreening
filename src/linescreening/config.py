@@ -54,7 +54,7 @@ DEFAULTS: dict[str, Any] = {
         "banner_region_fraction_w": 0.25,
         "banner_region_px_h": 260,
     },
-    "watch": {"enabled": True, "interval_s": 120},
+    "watch": {"enabled": True, "interval_s": 120, "heartbeat_s": 900},
 }
 
 
