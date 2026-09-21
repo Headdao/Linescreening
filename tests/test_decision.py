@@ -294,3 +294,52 @@ def test_sort_order(cfg):
     maybe = combine("c", answers(), cfg)
     ordered = sort_triages([skip, maybe, now])
     assert [x.verdict for x in ordered] == [Verdict.READ_NOW, Verdict.MAYBE, Verdict.CAN_SKIP]
+
+
+# --- machine/ops notices can never be READ_NOW (unless transactional) --------
+
+
+def test_ci_failure_capped_at_read_soon(cfg):
+    """Real-world regression (2026-09-21): a GitHub Actions failure digest
+    got READ_NOW via urgency=1.7/2 while message_kind said automated_notice
+    at 0.99 confidence. A machine is never waiting on the user."""
+    t = combine(
+        "Headdao/Linescreening",
+        answers(
+            urgency={"type": "score", "score": 1.7, "confidence": 0.5},
+            importance={"type": "score", "score": 2.35, "confidence": 0.35},
+            message_kind={"type": "choice", "choice": "automated_notice", "confidence": 0.99},
+            is_transactional={"type": "noul", "noul": 0.16},
+        ),
+        cfg,
+    )
+    assert t.verdict is Verdict.READ_SOON
+    assert any("機器" in r for r in t.reasons)
+
+
+def test_transactional_alert_keeps_read_now_despite_automation(cfg):
+    """Fraud alert / bill-due-today from a bank is automated AND carries a
+    real clock with a fact about the user's account — must stay READ_NOW."""
+    t = combine(
+        "中信銀行",
+        answers(
+            urgency={"type": "score", "score": 2.0, "confidence": 0.9},
+            importance={"type": "score", "score": 2.8, "confidence": 0.8},
+            message_kind={"type": "choice", "choice": "automated_notice", "confidence": 0.95},
+            is_transactional={"type": "noul", "noul": 0.9},
+        ),
+        cfg,
+    )
+    assert t.verdict is Verdict.READ_NOW
+
+
+def test_human_urgency_unaffected_by_machine_cap(cfg):
+    t = combine(
+        "媽媽",
+        answers(
+            urgency={"type": "score", "score": 2.0, "confidence": 0.9},
+            message_kind={"type": "choice", "choice": "direct_request", "confidence": 0.9},
+        ),
+        cfg,
+    )
+    assert t.verdict is Verdict.READ_NOW

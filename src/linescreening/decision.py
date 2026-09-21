@@ -106,10 +106,15 @@ QUESTION_BATTERY: dict[str, dict] = {
         "type": "score",
         "instructions": "How soon the content becomes stale or acts on a clock.",
         "criteria": [
-            "No time element; can be read whenever",
+            "No clock at all; nothing is lost by reading it late",
             "Relevant within the next few days",
-            "Time-critical today or right now: something scheduled, changing, "
-            "or expiring imminently",
+            "A real clock for the USER: something is scheduled, happens, or "
+            "expires today or within hours, and acting later would be too "
+            "late (a meeting today, a payment deadline tonight, a pickup "
+            "window closing). NOTE: a status report that something already "
+            "happened or is already broken — a CI/deploy failure, an alert "
+            "digest, a crash log — has NO clock: fixing it tonight instead "
+            "of now loses nothing.",
         ],
     },
     "message_kind": {
@@ -278,6 +283,18 @@ def combine(chat_name: str, answers: dict, cfg: Config) -> Triage:
             reasons.append(f"時間敏感（urgency {urgency_raw:.1f}/2）")
         if expects_reply > t["read_now_expects_reply"] and importance_raw >= 2:
             reasons.append(f"期待回覆（{expects_reply:.2f}）且重要度高")
+        # A machine is never waiting on the user the way a person is: CI /
+        # deploy failures, monitoring and digests cap at READ_SOON. Only a
+        # TRANSACTIONAL fact about the user's own account (fraud alert with
+        # a reply-by clock, charge, bill due today) keeps READ_NOW.
+        kind = answers.get("message_kind") or {}
+        if (
+            kind.get("choice") == "automated_notice"
+            and float(kind.get("confidence") or 0) >= 0.8
+            and transactional < t["transactional_floor"]
+        ):
+            verdict = Verdict.READ_SOON
+            reasons.append("機器/系統通知（無人在等回覆）→ 最高為可稍後讀")
     elif casual > t["can_skip_casual"]:
         verdict = Verdict.CAN_SKIP
         reasons.append(f"純閒聊訊號強（{casual:.2f}）")
