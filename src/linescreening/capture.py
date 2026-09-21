@@ -30,12 +30,26 @@ def _quartz() -> Any:
 
 
 def _capture_window_by_id(quartz: Any, window_id: int) -> Any:
+    # native (retina) resolution — CJK sidebar text at 1x is too small for
+    # reliable OCR; coordinates get normalized later via pixel_scale()
     return quartz.CGWindowListCreateImage(
         quartz.CGRectNull,
         quartz.kCGWindowListOptionIncludingWindow,
         window_id,
-        quartz.kCGWindowImageNominalResolution,
+        0,
     )
+
+
+def pixel_scale() -> float:
+    """Captured px per logical px (2.0 on retina, 1.0 otherwise). Feeds
+    ocr.recognize_cgimage(pixel_scale=...) so parse geometry stays in
+    logical units no matter the capture resolution."""
+    try:
+        from AppKit import NSScreen
+
+        return float(NSScreen.mainScreen().backingScaleFactor() or 1.0)
+    except Exception:  # noqa: BLE001 — best effort, non-GUI contexts
+        return 1.0
 
 
 def _frontmost_app() -> str | None:
@@ -161,7 +175,7 @@ def capture_line_window_silent() -> Any:
         rect,
         quartz.kCGWindowListOptionOnScreenOnly,
         quartz.kCGNullWindowID,
-        quartz.kCGWindowImageNominalResolution,
+        0,  # native resolution — see pixel_scale()
     )
     if img is None:
         raise CaptureError("擷取 LINE 視窗失敗（可能沒有螢幕錄製權限）")
@@ -274,7 +288,7 @@ def capture_nc_panel() -> Any:
                     quartz.CGRectNull,
                     quartz.kCGWindowListOptionIncludingWindow,
                     info["kCGWindowNumber"],
-                    quartz.kCGWindowImageNominalResolution,
+                    0,  # native resolution — see pixel_scale()
                 )
                 if img is not None:
                     return img
@@ -299,7 +313,7 @@ def capture_nc_panel() -> Any:
         rect,
         quartz.kCGWindowListOptionOnScreenOnly,
         quartz.kCGNullWindowID,
-        quartz.kCGWindowImageNominalResolution,
+        0,  # native resolution — see pixel_scale()
     )
     if img is None:
         raise CaptureError("擷取通知中心失敗（可能沒有螢幕錄製權限）")

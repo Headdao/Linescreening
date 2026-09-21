@@ -137,3 +137,20 @@ def test_optional_nc_skip_is_a_notice_not_a_warning(capsys):
     assert len(payload["notices"]) == 1
     assert "向系統要求授權" in payload["notices"][0]
     assert [c["name"] for c in payload["chats"]] == ["媽媽"]
+
+
+def test_read_chats_excluded_from_report():
+    from linescreening.report import collect_triage
+
+    payload = collect_triage(
+        cfg=load_config(),
+        sidebar_provider=lambda cfg: [
+            SidebarRow(chat_name="媽媽", preview="晚餐？", time_text="下午6:00", unread=2),
+            SidebarRow(chat_name="已讀的朋友", preview="哈", time_text="下午5:00", unread=0),
+            SidebarRow(chat_name="無徽章列", preview="嘿", time_text="下午4:00", unread=None),
+        ],
+        nc_provider=lambda cfg: [],
+        mock=True,
+    )
+    assert [c["name"] for c in payload["chats"]] == ["媽媽"]
+    assert any("已讀" in n for n in payload["notices"])

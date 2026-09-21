@@ -58,12 +58,14 @@ def run_dev(what: str, path: str | None) -> int:
 
         img = capture.capture_sidebar(cfg)
         dump = capture.save_png(img, Path("~/.linescreening/cache/sidebar_dev.png"))
+        scale = capture.pixel_scale()
         items = recognize_cgimage(
             img,
             languages=cfg.ocr["recognition_languages"],
             min_confidence=float(cfg.ocr["min_confidence"]),
+            pixel_scale=scale,
         )
-        rows = parse_sidebar(items, float(image_size(img)[0]), cfg.sidebar)
+        rows = parse_sidebar(items, float(image_size(img)[0]) / scale, cfg.sidebar)
         table = Table(title=f"Sidebar rows ({len(rows)}) — dump: {dump}")
         table.add_column("聊天", style="bold")
         table.add_column("未讀", justify="right")

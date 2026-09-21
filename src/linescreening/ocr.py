@@ -61,8 +61,13 @@ def recognize_cgimage(
     cgimage: Any,
     languages: list[str] | None = None,
     min_confidence: float = 0.5,
+    pixel_scale: float = 1.0,
 ) -> list[OcrText]:
-    """OCR a live-captured CGImage -> observations (same contract)."""
+    """OCR a live-captured CGImage -> observations (same contract).
+
+    pixel_scale: captured px per logical px (retina native-res captures are
+    2.0). Coordinates are NORMALIZED to logical pixels so the parse-layer
+    geometry constants stay calibrated regardless of capture resolution."""
     from Vision import VNImageRequestHandler, VNRecognizeTextRequest
 
     languages = languages or ["zh-Hant", "zh-Hans", "en-US"]
@@ -77,7 +82,7 @@ def recognize_cgimage(
 
     img_w = int(image_size(cgimage)[0])
     img_h = int(image_size(cgimage)[1])
-    return _convert(request.results(), img_w, img_h, min_confidence)
+    return _convert(request.results(), img_w, img_h, min_confidence, pixel_scale)
 
 
 # ---------------------------------------------------------------------------
@@ -88,6 +93,7 @@ def _convert(
     img_w: int,
     img_h: int,
     min_confidence: float,
+    pixel_scale: float = 1.0,
 ) -> list[OcrText]:
     out: list[OcrText] = []
     for obs in observations or []:
@@ -108,10 +114,10 @@ def _convert(
                 OcrText(
                     text=text,
                     confidence=float(top.confidence()),
-                    x=round(x, 1),
-                    y=round(y, 1),
-                    w=round(w, 1),
-                    h=round(h, 1),
+                    x=round(x / pixel_scale, 1),
+                    y=round(y / pixel_scale, 1),
+                    w=round(w / pixel_scale, 1),
+                    h=round(h / pixel_scale, 1),
                 )
             )
     out.sort(key=lambda o: (o.y, o.x))

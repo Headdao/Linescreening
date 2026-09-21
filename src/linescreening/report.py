@@ -49,8 +49,9 @@ def _real_sidebar(cfg: Config, activate: bool = True) -> list[SidebarRow]:  # no
         img,
         languages=cfg.ocr["recognition_languages"],
         min_confidence=float(cfg.ocr["min_confidence"]),
+        pixel_scale=capture.pixel_scale(),
     )
-    return parse_sidebar(items, width, cfg.sidebar)
+    return parse_sidebar(items, width / capture.pixel_scale(), cfg.sidebar)
 
 
 def _real_nc(cfg: Config) -> list[NotificationItem]:
@@ -108,12 +109,22 @@ def collect_triage(
 
     # merge sources into one state per chat
     nc_names = {n.chat_name for n in nc_items}
+    sidebar_names = {r.chat_name for r in sidebar_rows}
     states: list[tuple[dict, bool]] = []  # (state, unread_flag)
+    read_skipped = 0
     for row in sidebar_rows:
+        if row.unread is None or row.unread <= 0:
+            # the unread badge column is parsed for every sidebar row; no
+            # badge = already read. The report is unread-only — a read chat
+            # must never surface (let alone get judged or notified).
+            read_skipped += 1
+            continue
         st = state_from_sources(row, [n for n in nc_items if n.chat_name == row.chat_name])
         if st is not None:
             states.append((st, True))
-    for name in nc_names - {r.chat_name for r in sidebar_rows}:
+    if read_skipped:
+        notices.append(f"側欄有 {read_skipped} 個已讀聊天未列入報表。")
+    for name in nc_names - sidebar_names:
         st = state_from_sources(None, [n for n in nc_items if n.chat_name == name])
         if st is not None:
             states.append((st, False))  # NC-only: may already be read

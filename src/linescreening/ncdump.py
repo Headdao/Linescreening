@@ -62,9 +62,12 @@ def dump_once(cfg: Config) -> list[NotificationItem]:
     try:
         img = capture.capture_nc_panel()
         items = recognize_cgimage(
-            img, languages=cfg.ocr["recognition_languages"], min_confidence=0.4
+            img,
+            languages=cfg.ocr["recognition_languages"],
+            min_confidence=0.4,
+            pixel_scale=capture.pixel_scale(),
         )
-        return parse_notifications(items, float(image_size(img)[0]))
+        return parse_notifications(items, float(image_size(img)[0]) / capture.pixel_scale())
     finally:
         try:
             close_notification_center()

@@ -35,7 +35,9 @@ ocr:
 # real-window calibration. sidebar occupies the left portion of the window.
 sidebar:
   width_fraction: 0.98            # left 28% of the LINE window
-  top_inset_fraction: 0.15        # skip window title/toolbar area
+  top_inset_fraction: 0.09        # skip window title/toolbar only — deeper
+                                   # values clip the first chat row and its
+                                   # unread badge drifts to a garbage row
   row_max_count: 40               # safety cap on parsed rows
 
 # Notification Center panel (Phase 5). Panel slides from the right edge.
