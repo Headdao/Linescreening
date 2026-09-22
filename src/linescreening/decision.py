@@ -263,18 +263,36 @@ def combine(chat_name: str, answers: dict, cfg: Config) -> Triage:
 
     reasons: list[str] = []
     verdict: Verdict
+    machine_capped = False  # READ_NOW already softened — no double downgrade
 
     # Promotional mass-sends are skippable even when they shout "today
     # only!" — but a strong TRANSACTIONAL signal (charge, security alert,
     # bill, delivery) means the official sender is reporting a fact about
     # the user's own account, and it must not sink to the bottom.
     redirect = _noul(answers, "is_redirect_ping")
+    kind_answer = answers.get("message_kind") or {}
+    kind_choice = kind_answer.get("choice")
+    kind_conf = float(kind_answer.get("confidence") or 0)
+    machine_notice = kind_choice == "automated_notice" and kind_conf >= 0.8
+    soft_skip = importance_raw < t["soft_skip_importance_max"] and (
+        transactional < t["transactional_floor"]
+    )
     if automated > t["can_skip_automated"] and transactional < t["transactional_floor"]:
         verdict = Verdict.CAN_SKIP
         reasons.append(f"行銷/大量發送訊號強（{automated:.2f}）")
     elif redirect > t["redirect_ping"] and transactional < t["transactional_floor"]:
         verdict = Verdict.CAN_SKIP
         reasons.append(f"空導流通知（{redirect:.2f}）：內容在別處，訊息本身無資訊")
+    elif (
+        automated > t["can_skip_marketing_soft"]
+        and soft_skip
+        and redirect < t["redirect_ping"]
+    ):
+        # moderate marketing signal on a low-importance message — below the
+        # hard threshold these used to fall into MAYBE and swell the
+        # "unclear" bucket (Outlook "new templates published" etc.)
+        verdict = Verdict.CAN_SKIP
+        reasons.append(f"行銷內容（訊號 {automated:.2f}，重要度低）")
     elif urgency_n > t["read_now_urgency_norm"] or (
         expects_reply > t["read_now_expects_reply"] and importance_raw >= 2
     ):
@@ -287,14 +305,15 @@ def combine(chat_name: str, answers: dict, cfg: Config) -> Triage:
         # deploy failures, monitoring and digests cap at READ_SOON. Only a
         # TRANSACTIONAL fact about the user's own account (fraud alert with
         # a reply-by clock, charge, bill due today) keeps READ_NOW.
-        kind = answers.get("message_kind") or {}
-        if (
-            kind.get("choice") == "automated_notice"
-            and float(kind.get("confidence") or 0) >= 0.8
-            and transactional < t["transactional_floor"]
-        ):
+        if machine_notice and transactional < t["transactional_floor"]:
             verdict = Verdict.READ_SOON
+            machine_capped = True
             reasons.append("機器/系統通知（無人在等回覆）→ 最高為可稍後讀")
+    elif machine_notice and soft_skip:
+        # low-importance machine FYI (「圖片已傳送」, digests, receipts that
+        # carry no readable action) — never worth interrupting the user
+        verdict = Verdict.CAN_SKIP
+        reasons.append("系統通知（重要度低、非交易事實）")
     elif casual > t["can_skip_casual"]:
         verdict = Verdict.CAN_SKIP
         reasons.append(f"純閒聊訊號強（{casual:.2f}）")
@@ -311,9 +330,15 @@ def combine(chat_name: str, answers: dict, cfg: Config) -> Triage:
     confidence = _min_confidence(answers)
     low_conf = confidence < t["low_confidence"]
     # never downgrade READ_NOW; very strong marketing signals (>0.85) also
-    # stay CAN_SKIP — a bank ad at low confidence metadata is still an ad.
+    # stay CAN_SKIP — a bank ad at low confidence metadata is still an ad;
+    # machine-capped verdicts keep their READ_SOON (one softening is enough)
     strong_marketing = verdict is Verdict.CAN_SKIP and automated > 0.85
-    if low_conf and verdict in {Verdict.READ_SOON, Verdict.CAN_SKIP} and not strong_marketing:
+    if (
+        low_conf
+        and verdict in {Verdict.READ_SOON, Verdict.CAN_SKIP}
+        and not strong_marketing
+        and not machine_capped
+    ):
         verdict = Verdict.MAYBE
         reasons.append(f"模型信心不足（{confidence:.2f}）")
 

@@ -343,3 +343,70 @@ def test_human_urgency_unaffected_by_machine_cap(cfg):
         cfg,
     )
     assert t.verdict is Verdict.READ_NOW
+
+
+# --- MAYBE bucket shrinkage: soft marketing / machine FYI (2026-09-22) -------
+
+
+def test_weak_marketing_low_importance_skips(cfg):
+    """Outlook 'new PowerPoint templates': marketing 0.67 fell through the
+    0.70 hard line into MAYBE — moderate marketing + low importance skips."""
+    t = combine(
+        "Microsoft Outlook",
+        answers(
+            automated_broadcast={"type": "noul", "noul": 0.67},
+            importance={"type": "score", "score": 0.99, "confidence": 0.4},
+            urgency={"type": "score", "score": 0.5, "confidence": 0.4},
+            message_kind={"type": "choice", "choice": "automated_notice", "confidence": 0.9},
+        ),
+        cfg,
+    )
+    assert t.verdict is Verdict.CAN_SKIP
+    assert any("行銷內容" in r for r in t.reasons)
+
+
+def test_moderate_marketing_with_real_importance_not_skipped(cfg):
+    """Marketing 0.6 but importance 2.4 (personally relevant) — no soft skip."""
+    t = combine(
+        "社團",
+        answers(
+            automated_broadcast={"type": "noul", "noul": 0.6},
+            importance={"type": "score", "score": 2.4, "confidence": 0.8},
+            urgency={"type": "score", "score": 1.0, "confidence": 0.8},
+            message_kind={"type": "choice", "choice": "info_share", "confidence": 0.9},
+        ),
+        cfg,
+    )
+    assert t.verdict is not Verdict.CAN_SKIP
+
+
+def test_machine_fyi_low_importance_skips(cfg):
+    """「圖片已傳送」 digest: automated notice, importance 1.0, no facts."""
+    t = combine(
+        "親友會",
+        answers(
+            importance={"type": "score", "score": 1.03, "confidence": 0.4},
+            urgency={"type": "score", "score": 0.31, "confidence": 0.5},
+            message_kind={"type": "choice", "choice": "automated_notice", "confidence": 0.92},
+        ),
+        cfg,
+    )
+    assert t.verdict is Verdict.CAN_SKIP
+    assert any("系統通知" in r for r in t.reasons)
+
+
+def test_machine_capped_read_soon_not_double_downgraded(cfg):
+    """CI failure: capped READ_SOON must survive the low-confidence gate —
+    one softening is enough, double-downgrade dumped it into MAYBE."""
+    t = combine(
+        "Headdao/Linescreening",
+        answers(
+            urgency={"type": "score", "score": 1.24, "confidence": 0.0},
+            importance={"type": "score", "score": 2.33, "confidence": 0.0},
+            message_kind={"type": "choice", "choice": "automated_notice", "confidence": 0.95},
+            is_transactional={"type": "noul", "noul": 0.14},
+        ),
+        cfg,
+    )
+    assert t.verdict is Verdict.READ_SOON
+    assert t.low_confidence is True  # still flagged, just not re-downgraded

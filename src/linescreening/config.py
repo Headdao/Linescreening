@@ -37,6 +37,8 @@ DEFAULTS: dict[str, Any] = {
         "read_now_expects_reply": 0.60,
         "read_soon_priority": 0.35,
         "can_skip_automated": 0.70,
+        "can_skip_marketing_soft": 0.55,
+        "soft_skip_importance_max": 1.5,
         "transactional_floor": 0.60,
         "redirect_ping": 0.55,
         "can_skip_casual": 0.80,

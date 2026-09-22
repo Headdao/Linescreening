@@ -21,6 +21,10 @@ thresholds:
   read_now_expects_reply: 0.60    # expects_reply > this AND importance >= 2 -> READ_NOW
   read_soon_priority: 0.35        # priority >= this      -> READ_SOON
   can_skip_automated: 0.70        # automated_broadcast > this -> CAN_SKIP
+  can_skip_marketing_soft: 0.55   # weaker marketing + low importance -> CAN_SKIP
+                                  # (below the hard line these fell into MAYBE)
+  soft_skip_importance_max: 1.5   # importance below this counts as "low" for
+                                  # soft-skip rules (marketing / machine FYI)
   transactional_floor: 0.60       # ...unless is_transactional >= this (charge/bill/alert)
   redirect_ping: 0.55             # 'please log in' empty pointer above this -> CAN_SKIP       # ...unless is_transactional >= this (charge/bill/alert)
   can_skip_casual: 0.80           # casual_social > this      -> CAN_SKIP
