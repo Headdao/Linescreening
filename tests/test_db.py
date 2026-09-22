@@ -78,3 +78,27 @@ def test_schema_idempotent(tmp_path):
     s1.close()
     s2 = Store(p)  # must not raise on existing file
     s2.close()
+
+
+def test_feedback_roundtrip_and_purge(tmp_path):
+    p = tmp_path / "t.sqlite"
+    s = Store(p)
+    s.record_feedback(
+        chat_name="Headdao/Linescreening",
+        preview="Multiple runs failed for ci.yml",
+        verdict_model="READ_NOW",
+        verdict_user="READ_SOON",
+        direction=-1,
+        scores={
+            "urgency": {"v": 1.7, "conf": 0.5},
+            "message_kind": {"v": "automated_notice", "conf": 0.99},
+        },
+    )
+    stats = s.feedback_stats()
+    assert stats["count"] == 1 and stats["last_at"]
+    recent = s.feedback_recent()
+    assert recent[0]["chat_name"] == "Headdao/Linescreening"
+    assert recent[0]["verdict_model"] == "READ_NOW" and recent[0]["verdict_user"] == "READ_SOON"
+    s.purge_all()
+    assert s.feedback_stats()["count"] == 0
+    s.close()

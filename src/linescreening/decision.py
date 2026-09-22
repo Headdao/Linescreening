@@ -339,6 +339,42 @@ VERDICT_ORDER = {
     Verdict.CAN_SKIP: 3,
 }
 
+# importance axis for human overrides (升級 = towards READ_NOW)
+IMPORTANCE_AXIS: list[Verdict] = [
+    Verdict.CAN_SKIP,
+    Verdict.MAYBE,
+    Verdict.READ_SOON,
+    Verdict.READ_NOW,
+]
+
+QUESTION_LABEL = {
+    "expects_reply": "期待回覆",
+    "time_sensitive": "時間敏感",
+    "asks_action": "要求行動",
+    "automated_broadcast": "行銷大量發送",
+    "is_transactional": "含交易事實",
+    "is_redirect_ping": "空導流",
+    "casual_social": "純閒聊",
+    "importance": "重要度（0–3）",
+    "urgency": "時效（0–2）",
+    "message_kind": "訊息類型",
+}
+
+
+def scores_summary(answers: dict) -> dict[str, dict]:
+    """Compact per-question value+confidence view for the dashboard."""
+    out: dict[str, dict] = {}
+    for key, spec in QUESTION_BATTERY.items():
+        a = answers.get(key) or {}
+        if spec["type"] == "noul":
+            value = a.get("noul")
+        elif spec["type"] == "score":
+            value = a.get("score")
+        else:
+            value = a.get("choice")
+        out[key] = {"v": value, "conf": a.get("confidence")}
+    return out
+
 
 def sort_triages(items: list[Triage]) -> list[Triage]:
     return sorted(items, key=lambda x: (VERDICT_ORDER[x.verdict], -x.priority))

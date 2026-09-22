@@ -61,6 +61,18 @@ _PAGE = """<!doctype html>
   .card .reasons { color: #7d8698; font-size: 12px; margin-top: 5px; }
   .card .conf { width: 90px; align-self: center; text-align: right;
           font-size: 11px; color: #8b93a3; }
+  .fbrow { display: flex; gap: 6px; align-items: center; margin-top: 7px; }
+  .fbrow .dim, .dim { color: #6b7382; font-size: 11.5px; }
+  .fbrow .mini { background: #23262e; color: #aab3c2; border: 1px solid #2a2e38;
+          border-radius: 7px; padding: 3px 10px; font-size: 11.5px; cursor: pointer; }
+  .fbrow .mini:hover { border-color: #3a4150; color: #e6e6e6; }
+  .fbmsg { color: #7fa98f; font-size: 11.5px; }
+  details.scores { margin-top: 7px; }
+  details.scores summary { color: #8b93a3; font-size: 11.5px; cursor: pointer;
+          user-select: none; }
+  details.scores table { border-collapse: collapse; margin-top: 5px; }
+  details.scores td { padding: 2px 14px 2px 0; font-size: 11.5px; color: #98a2b3; }
+  details.scores td:first-child { color: #7d8698; }
   .bar { height: 5px; border-radius: 3px; background: #23262e; margin-top: 4px; }
   .bar > i { display: block; height: 100%; border-radius: 3px; background: #4f9d69; }
   .low { color: #d8a03c; }
@@ -104,11 +116,17 @@ _PAGE = """<!doctype html>
     <div id="content"><div class="empty">按「重新擷取判讀」開始</div></div>
   </div>
 </main>
-<footer>linescreening — 本機儀表板（僅 127.0.0.1）· 判讀時預覽文字送 typesafe.ai（同 CLI）</footer>
+<footer>linescreening — 本機儀表板（僅 127.0.0.1）· 判讀時預覽文字送 typesafe.ai（同 CLI）
+  <span id="fbcount" style="margin-left:8px"></span></footer>
 <script>
 const ICON = {READ_NOW:"🔴", MAYBE:"🟡", READ_SOON:"🔵", CAN_SKIP:"⚪"};
 const ORDER = ["READ_NOW","MAYBE","READ_SOON","CAN_SKIP"];
 const LABEL = {READ_NOW:"值得讀（現在）", MAYBE:"不確定", READ_SOON:"可稍後讀", CAN_SKIP:"可略過"};
+const AXIS = ["CAN_SKIP","MAYBE","READ_SOON","READ_NOW"];
+const QLABEL = {expects_reply:"期待回覆", time_sensitive:"時間敏感", asks_action:"要求行動",
+  automated_broadcast:"行銷大量發送", is_transactional:"含交易事實", is_redirect_ping:"空導流",
+  casual_social:"純閒聊", importance:"重要度 0–3", urgency:"時效 0–2", message_kind:"訊息類型"};
+let CUR_CHATS = [];
 async function run(fromWatch) {
   const btn = document.getElementById("run");
   btn.disabled = true;
@@ -133,22 +151,31 @@ function render(data) {
     (data.warnings || []).map(w => `<div class="warn">⚠ ${w}</div>`).join("") +
     (data.notices || []).map(n => `<div class="notice">ℹ ${n}</div>`).join("");
   const root = document.getElementById("content");
+  CUR_CHATS = data.chats || [];
   if (!data.chats.length) {
     root.innerHTML = '<div class="empty">目前沒有可見的未讀聊天 🎉</div>';
+    loadFbBadge();
     return;
   }
   let html = "";
   for (const g of ORDER) {
-    const chats = data.chats.filter(c => c.verdict === g);
+    const chats = data.chats.map((c, i) => [c, i]).filter(([c]) => c.verdict === g);
     if (!chats.length) continue;
     html += `<div class="group">${ICON[g]} ${LABEL[g]} · ${chats.length} 個聊天</div>`;
-    html += chats.map(c => `
+    html += chats.map(([c, i]) => `
       <div class="card">
         <div class="icon">${ICON[c.verdict]}</div>
         <div class="body">
           <div class="name">${esc(c.name)}${unreadBadge(c)}</div>
           <div class="preview">${esc(c.preview || "（無預覽文字）")}</div>
           <div class="reasons">${c.reasons.map(esc).join("；")}</div>
+          <div class="fbrow">
+            <span class="dim">判錯了嗎？</span>
+            <button class="mini" onclick="fb(${i}, 1)" title="我認為它更重要">⬆ 更重要</button>
+            <button class="mini" onclick="fb(${i}, -1)" title="我認為它更不重要">⬇ 更不重要</button>
+            <span class="fbmsg" id="fbmsg-${i}"></span>
+          </div>
+          ${scoresHtml(c)}
         </div>
         <div class="conf ${c.low_confidence ? "low" : ""}">
           信心 ${c.confidence == null ? "—" : (c.confidence * 100).toFixed(0) + "%"}
@@ -157,6 +184,50 @@ function render(data) {
       </div>`).join("");
   }
   root.innerHTML = html;
+  loadFbBadge();
+}
+function scoresHtml(c) {
+  const s = c.scores || {};
+  const keys = Object.keys(QLABEL).filter(k => s[k] && s[k].v != null);
+  if (!keys.length) return "";
+  const rows = keys.map(k => {
+    const v = s[k].v, conf = s[k].conf;
+    const vtxt = typeof v === "number" ? v.toFixed(2) : esc(String(v));
+    const ctxt = conf == null ? "" : ` <span class="dim">${(conf * 100).toFixed(0)}%</span>`;
+    return `<tr><td>${QLABEL[k]}</td><td>${vtxt}${ctxt}</td></tr>`;
+  }).join("");
+  return `<details class="scores"><summary>評分明細</summary><table>${rows}</table></details>`;
+}
+async function fb(i, dir) {
+  const c = CUR_CHATS[i];
+  if (!c) return;
+  const pos = AXIS.indexOf(c.verdict);
+  const npos = Math.max(0, Math.min(AXIS.length - 1, pos + dir));
+  if (npos === pos) { document.getElementById(`fbmsg-${i}`).textContent = "已在邊界"; return; }
+  const msg = document.getElementById(`fbmsg-${i}`);
+  msg.textContent = "記錄中…";
+  try {
+    const res = await fetch("/api/feedback", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({
+        chat_name: c.name, preview: c.preview || "",
+        verdict_model: c.verdict, verdict_user: AXIS[npos],
+        direction: dir, scores: c.scores || {},
+      }),
+    });
+    const d = await res.json();
+    if (d.ok) {
+      msg.textContent = `已記錄 ✓（您的判斷：${LABEL[AXIS[npos]]}，累積 ${d.count} 則）`;
+      loadFbBadge();
+    } else { msg.textContent = "失敗：" + (d.error || ""); }
+  } catch (e) { msg.textContent = "失敗：" + e; }
+}
+async function loadFbBadge() {
+  try {
+    const d = await (await fetch("/api/feedback")).json();
+    const el = document.getElementById("fbcount");
+    if (el) el.textContent = d.count ? `已累積 ${d.count} 則回饋` : "";
+  } catch (e) { /* ignore */ }
 }
 function unreadBadge(c) {
   return c.unread != null ? `<span class="unread">${c.unread} 未讀</span>` : "";
@@ -316,6 +387,49 @@ def _history(cfg) -> list[dict]:  # type: ignore[no-untyped-def]
         store.close()
 
 
+_VALID_VERDICTS = {"READ_NOW", "READ_SOON", "CAN_SKIP", "MAYBE"}
+
+
+def _feedback_stats(cfg) -> dict:  # type: ignore[no-untyped-def]
+    store = Store(cfg.db_path)
+    try:
+        stats = store.feedback_stats()
+        recent = [dict(r) for r in store.feedback_recent(10)]
+        return {**stats, "recent": recent}
+    finally:
+        store.close()
+
+
+def _record_feedback(cfg, data: dict) -> tuple[dict, int]:  # type: ignore[no-untyped-def]
+    """Store a human verdict override (升級/降級) with the battery snapshot."""
+    chat_name = str(data.get("chat_name") or "").strip()[:80]
+    verdict_model = str(data.get("verdict_model") or "")
+    verdict_user = str(data.get("verdict_user") or "")
+    direction = int(data.get("direction") or 0)
+    if not chat_name:
+        return {"ok": False, "error": "chat_name required"}, 400
+    if verdict_model not in _VALID_VERDICTS or verdict_user not in _VALID_VERDICTS:
+        return {"ok": False, "error": "invalid verdict"}, 400
+    if direction not in (-1, 1):
+        return {"ok": False, "error": "direction must be ±1"}, 400
+    raw_scores = data.get("scores")
+    scores: dict = dict(raw_scores) if isinstance(raw_scores, dict) else {}
+    store = Store(cfg.db_path)
+    try:
+        store.record_feedback(
+            chat_name=chat_name,
+            preview=str(data.get("preview") or ""),
+            verdict_model=verdict_model,
+            verdict_user=verdict_user,
+            direction=direction,
+            scores=scores,
+        )
+        stats = store.feedback_stats()
+    finally:
+        store.close()
+    return {"ok": True, "count": stats["count"]}, 200
+
+
 def _setup_status(cfg) -> dict:  # type: ignore[no-untyped-def]
     """First-run onboarding state — reuses the doctor check engine."""
     from linescreening import checks
@@ -417,6 +531,8 @@ def make_server(port: int = 8765) -> ThreadingHTTPServer:  # noqa: FBT001, FBT00
                     self._json({"stale": True}, status=404)
                 else:
                     self._json(payload)
+            elif route == "/api/feedback":
+                self._json(_feedback_stats(cfg))
             else:
                 self.send_response(404)
                 self.end_headers()
@@ -430,7 +546,10 @@ def make_server(port: int = 8765) -> ThreadingHTTPServer:  # noqa: FBT001, FBT00
                 self._json({"ok": False, "error": "invalid JSON"}, status=400)
                 return
 
-            if route == "/api/watch/toggle":
+            if route == "/api/feedback":
+                result, status = _record_feedback(cfg, data)
+                self._json(result, status)
+            elif route == "/api/watch/toggle":
                 watcher = _get_watcher()
                 watcher.enabled = bool(data.get("enabled"))
                 self._json(watcher.status_payload())

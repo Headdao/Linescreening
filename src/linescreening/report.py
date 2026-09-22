@@ -26,6 +26,7 @@ from linescreening.decision import (
     Triage,
     Verdict,
     combine,
+    scores_summary,
     sort_triages,
     state_from_sources,
 )
@@ -183,6 +184,7 @@ def collect_triage(
                 "reasons": t.reasons,
                 "low_confidence": t.low_confidence,
                 "confidence": t.detail.get("confidence"),
+                "scores": scores_summary(t.detail.get("answers") or {}),
                 "preview": previews.get(t.chat_name, ("", None))[0],
                 "unread": previews.get(t.chat_name, ("", None))[1],
             }

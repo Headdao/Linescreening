@@ -33,6 +33,18 @@ CREATE TABLE IF NOT EXISTS meta (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS feedback (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at  TEXT NOT NULL,           -- ISO-8601 UTC
+    chat_name   TEXT NOT NULL,
+    preview     TEXT NOT NULL,
+    verdict_model TEXT NOT NULL,         -- what the pipeline said
+    verdict_user  TEXT NOT NULL,         -- what the human said
+    direction   INTEGER NOT NULL,        -- +1 more important / -1 less
+    scores_json TEXT NOT NULL            -- full question-battery snapshot
+);
+CREATE INDEX IF NOT EXISTS idx_feedback_created ON feedback(created_at);
 """
 
 
@@ -91,6 +103,48 @@ class Store:
         row = cur.fetchone()
         return row["value"] if row else None
 
+    # -- human feedback (verdict overrides; accumulated for tuning) -------
+    def record_feedback(
+        self,
+        chat_name: str,
+        preview: str,
+        verdict_model: str,
+        verdict_user: str,
+        direction: int,
+        scores: dict,
+    ) -> None:
+        import json
+
+        self._conn.execute(
+            "INSERT INTO feedback (created_at, chat_name, preview, verdict_model, "
+            "verdict_user, direction, scores_json) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                _utcnow(),
+                chat_name[:80],
+                preview[:200],
+                verdict_model,
+                verdict_user,
+                int(direction),
+                json.dumps(scores, ensure_ascii=False),
+            ),
+        )
+        self._conn.commit()
+
+    def feedback_stats(self) -> dict:
+        cur = self._conn.execute(
+            "SELECT COUNT(*) AS n, MAX(created_at) AS last FROM feedback"
+        )
+        row = cur.fetchone()
+        return {"count": row["n"] or 0, "last_at": row["last"]}
+
+    def feedback_recent(self, limit: int = 20) -> list[sqlite3.Row]:
+        cur = self._conn.execute(
+            "SELECT created_at, chat_name, verdict_model, verdict_user, direction "
+            "FROM feedback ORDER BY id DESC LIMIT ?",
+            (limit,),
+        )
+        return cur.fetchall()
+
     # -- lifecycle -----------------------------------------------------
     def purge_older_than(self, retention_days: int) -> int:
         """Delete rows older than `retention_days`. Returns deleted count."""
@@ -102,7 +156,8 @@ class Store:
     def purge_all(self) -> None:
         """Wipe every stored row (used by `linescreening purge`)."""
         self._conn.executescript(
-            "DELETE FROM notifications; DELETE FROM triage_log; DELETE FROM meta;"
+            "DELETE FROM notifications; DELETE FROM triage_log; DELETE FROM meta; "
+            "DELETE FROM feedback;"
         )
         self._conn.commit()
 

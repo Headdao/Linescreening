@@ -175,3 +175,72 @@ def test_watch_last_404_then_cached(server):
         assert json.loads(body)["mode"] == "live"
     finally:
         dash._WATCHER = None
+
+
+def test_feedback_endpoint_validates_and_rejects(server, monkeypatch):
+    import linescreening.dashboard as dash
+
+    captured = []
+
+    def fake_store(cfg, data):
+        captured.append(data)
+        return {"ok": True, "count": 1}, 200
+
+    monkeypatch.setattr(dash, "_record_feedback", fake_store)
+
+    def _post(payload):
+        req = urllib.request.Request(  # noqa: S310 — 127.0.0.1 test server
+            server + "/api/feedback",
+            data=json.dumps(payload).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:  # noqa: S310
+                return resp.status, json.loads(resp.read())
+        except urllib.error.HTTPError as e:
+            return e.code, json.loads(e.read())
+
+    status, body = _post({"chat_name": "媽媽", "preview": "晚餐？",
+                          "verdict_model": "MAYBE", "verdict_user": "READ_NOW",
+                          "direction": 1, "scores": {}})
+    assert status == 200 and body["ok"] and captured[0]["chat_name"] == "媽媽"
+
+
+def test_record_feedback_validation(tmp_path):
+    import linescreening.dashboard as dash
+    from linescreening.config import Config
+
+    cfg = Config(raw={"data": {"db_path": str(tmp_path / "f.sqlite")}})
+    _, status = dash._record_feedback(
+        cfg, {"chat_name": "x", "verdict_model": "WOOT", "verdict_user": "MAYBE", "direction": 1}
+    )
+    assert status == 400
+    _, status = dash._record_feedback(
+        cfg,
+        {"chat_name": "x", "verdict_model": "MAYBE", "verdict_user": "READ_NOW", "direction": 5},
+    )
+    assert status == 400
+    body, status = dash._record_feedback(
+        cfg, {"chat_name": "x", "preview": "p", "verdict_model": "MAYBE",
+              "verdict_user": "READ_NOW", "direction": 1, "scores": {"urgency": {"v": 1}}}
+    )
+    assert status == 200 and body["ok"] and body["count"] == 1
+
+
+def test_triage_payload_carries_scores():
+    from linescreening.config import load_config
+    from linescreening.parse import SidebarRow
+    from linescreening.report import collect_triage
+
+    payload = collect_triage(
+        cfg=load_config(),
+        sidebar_provider=lambda cfg: [
+            SidebarRow(chat_name="媽媽", preview="晚餐？", time_text="下午6:00", unread=1)
+        ],
+        nc_provider=lambda cfg: [],
+        mock=True,
+    )
+    scores = payload["chats"][0]["scores"]
+    assert "urgency" in scores and "message_kind" in scores
+    assert scores["urgency"]["v"] is not None  # mock client fills values
